@@ -2,6 +2,8 @@ import fitz
 from rag.models import DocumentType
 import math
 import uuid
+import json
+from pathlib import Path
 
 def detect_pdf_type(page: fitz.Page) -> DocumentType:
   width = page.mediabox_size[0]
@@ -31,3 +33,29 @@ def softmax(scores):
 
 def generate_kb_id():
     return f"kb_{uuid.uuid4().hex[:8]}"
+
+def save_chat(chat_id, chat, discipline=None):
+    folder = Path("data/chats")
+    folder.mkdir(parents=True, exist_ok=True)
+
+    data = {
+        "chat_id": chat_id,
+        "discipline": discipline,
+        "messages": chat
+    }
+
+    with open(folder / f"{chat_id}.json", "w") as f:
+        json.dump(data, f, indent=2)
+
+def load_chats():
+    folder = Path(f"data/chats")
+
+    if not folder.exists():
+        return []
+
+    chats = []
+    for file in folder.glob("*.json"):
+        with open(file) as f:
+            chats.append(json.load(f))
+
+    return chats

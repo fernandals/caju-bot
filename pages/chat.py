@@ -9,6 +9,9 @@ from agent.chat_pipeline import load_pipeline
 from student_model.profile import StudentProfile
 from agent.state import TutorState
 
+import uuid
+from utils.helpers import save_chat, load_chats
+
 # ---------------- CONFIG ----------------
 load_dotenv()
 
@@ -79,6 +82,9 @@ if "state" not in st.session_state:
         current_topic=None
     )
 
+if "chat_id" not in st.session_state:
+    st.session_state.chat_id = str(uuid.uuid4())
+
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
@@ -116,17 +122,42 @@ if user_input := st.chat_input("Digite sua pergunta..."):
             st.markdown(answer)
 
     st.session_state.chat.append({"role": "assistant", "content": answer})
+    save_chat(st.session_state.chat_id, st.session_state.chat, selected_kb)
 
 # ---------------- SIDEBAR ----------------
-st.sidebar.title("Perfil do Aluno")
+# st.sidebar.title("Perfil do Aluno")
 
-profile = st.session_state.state["student_profile"]
+# profile = st.session_state.state["student_profile"]
 
-st.sidebar.metric("Perfil", profile.current_profile)
-st.sidebar.metric("Confiança", f"{profile.confidence:.2f}")
+# st.sidebar.metric("Perfil", profile.current_profile)
+# st.sidebar.metric("Confiança", f"{profile.confidence:.2f}")
+
+# st.sidebar.markdown("---")
+# st.sidebar.markdown("**Sinais comportamentais:**")
+# st.sidebar.markdown(f"- Pede exercício: {profile.asks_exercise:.2f}")
+# st.sidebar.markdown(f"- Pede detalhe: {profile.asks_detail:.2f}")
+# st.sidebar.markdown(f"- Pede objetividade: {profile.asks_objectivity:.2f}")
+
+st.sidebar.title("Conversas")
+
+if st.sidebar.button("➕ Nova conversa"):
+    st.session_state.chat = []
+    st.session_state.chat_id = str(uuid.uuid4())
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("**Sinais comportamentais:**")
-st.sidebar.markdown(f"- Pede exercício: {profile.asks_exercise:.2f}")
-st.sidebar.markdown(f"- Pede detalhe: {profile.asks_detail:.2f}")
-st.sidebar.markdown(f"- Pede objetividade: {profile.asks_objectivity:.2f}")
+
+chats = load_chats()
+
+for i, chat in enumerate(chats):
+
+    if chat["discipline"] != selected_kb:
+        continue
+    if chat["messages"]:
+        title = chat["messages"][0]["content"][:30]
+    else:
+        title = "Conversa vazia"
+
+    if st.sidebar.button(title, key=f"chat_{chat['chat_id']}"):
+        #st.session_state.state = None
+        st.session_state.chat = chat["messages"]
+        st.session_state.chat_id = chat["chat_id"]
