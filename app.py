@@ -29,5 +29,5 @@ with col1:
 
 with col2:
     if st.button("👩‍🎓 Consultar disciplina", use_container_width=True):
-        st.session_state.page = "student"
-        st.switch_page("pages/student.py")
+        st.session_state.page = "chat"
+        st.switch_page("pages/chat.py")
