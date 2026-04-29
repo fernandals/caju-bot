@@ -5,16 +5,16 @@ import os
 
 load_dotenv()
 
-retrieved_docs = int(os.getenv("RETRIEVED_DOCS", 3))
-
 from langchain.tools import tool
+
+CHUNK_SEPARATOR = "\n\n---CHUNK---\n\n"
 
 def build_retrieve_tool(retriever: VectorStoreRetriever):
 
-    @tool
     def retrieve(query: str) -> str:
-        """Tool function to retrieve relevant information from the vector store based on the query."""
-        docs = retriever.invoke(query)[:retrieved_docs]
-        return "\n\n".join([doc.page_content.strip() for doc in docs])
+        """Retrieve relevant information from the vector store based on the query."""
+        docs = retriever.invoke(query)
+        result = CHUNK_SEPARATOR.join([doc.page_content.strip() for doc in docs])
+        return result
 
     return retrieve

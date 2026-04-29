@@ -48,20 +48,32 @@ def create_and_save_knowledge_base(folder_path: str, discipline_name: str):
   )
 
 def load_knowledge_base(discipline_name: str):
-  persist_dir = f"data/knowledge_bases/{discipline_name}"
-
-  embeddings = OpenAIEmbeddings(
-    model=os.getenv("EMBED_MODEL", "text-embedding-3-large")
-  )
-
-  vectorstore = Chroma(
-    persist_directory=persist_dir,
-    embedding_function=embeddings
-  )
-
-  retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-  
-  return retriever
+    base_path = Path("data/knowledge_bases")
+    
+    # find the kb folder that matches the discipline name
+    for kb_dir in base_path.iterdir():
+        metadata_path = kb_dir / "metadata.json"
+        if not metadata_path.exists():
+            continue
+        
+        with open(metadata_path) as f:
+            metadata = json.load(f)
+        
+        if metadata["name"] == discipline_name:
+            persist_dir = kb_dir / "chroma"
+            
+            embeddings = OpenAIEmbeddings(
+                model=metadata.get("embedding_model", os.getenv("EMBED_MODEL", "text-embedding-3-large"))
+            )
+            
+            vectorstore = Chroma(
+                persist_directory=str(persist_dir),
+                embedding_function=embeddings
+            )
+            
+            return vectorstore.as_retriever(search_kwargs={"k": 4})
+    
+    raise ValueError(f"No knowledge base found for discipline: {discipline_name!r}")
 
 def list_knowledge_bases() -> list[dict]:
   base_dir = Path("data/knowledge_bases")

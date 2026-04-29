@@ -76,6 +76,10 @@ Context:
 {context}
 """
 
+GRADE_PROMPT = """You are a relevance grader for a tutoring system about {domain}.
+Given a student question and a retrieved chunk, decide if the chunk is useful.
+Be strict, only mark relevant if the chunk directly addresses the question."""
+
 SYSTEM_PROMPT = """
 You are an educational assistant acting as an intelligent tutor for a course.
 
