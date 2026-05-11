@@ -79,7 +79,7 @@ def grade_documents(state: TutorState, config: TutorConfig, model):
             system,
             HumanMessage(content=f"Question: {question}\n\nChunk: {chunk}")
         ])
-        if result.relevant:s
+        if result.relevant:
             relevant_chunks.append(chunk)
 
     # if nothing passed, keep all chunks as fallback to avoid empty context
