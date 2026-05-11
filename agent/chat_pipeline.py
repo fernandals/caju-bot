@@ -1,3 +1,4 @@
+from agent.models import ModelRegistry
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage
 import os
@@ -21,12 +22,29 @@ def load_pipeline(discipline_name: str):
         course_level=config.course_level,
         answer_language=config.answer_language
     ))
+    
+    models = ModelRegistry(
+        generation_llm=init_chat_model(
+            "gpt-4o-mini",
+            temperature=float(os.getenv("MODEL_TEMPERATURE", 0))
+        ).bind_tools([retrieve_tool]),
 
-    response_model = init_chat_model(
-        os.getenv("MODEL_NAME", "gpt-4o-mini"),
-        temperature=float(os.getenv("MODEL_TEMPERATURE", 0))
-    ).bind_tools([retrieve_tool])
+        tracking_llm=init_chat_model(
+            "gpt-4.1-nano",
+            temperature=float(os.getenv("MODEL_TEMPERATURE", 0))
+        ),
 
-    graph = build_graph(config, retrieve_tool, response_model)
+        planning_llm=init_chat_model(
+            "gpt-4.1-mini",
+            temperature=float(os.getenv("MODEL_TEMPERATURE", 0))
+        ),
+
+        grading_llm=init_chat_model(
+            "gpt-4.1-nano",
+            temperature=float(os.getenv("MODEL_TEMPERATURE", 0))
+        )
+    )
+
+    graph = build_graph(config, retrieve_tool, models)
 
     return graph, tutor_prompt, config

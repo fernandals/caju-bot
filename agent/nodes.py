@@ -1,5 +1,5 @@
 import agent.prompts as prompts
-from agent.state import TutorState, TutorConfig
+from agent.state import LearningState, TutorState, TutorConfig
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage, AIMessage
 from student_model.updater import update_student_profile, update_conversation_topic
 from agent.grader import GradeDocument
@@ -89,16 +89,71 @@ def grade_documents(state: TutorState, config: TutorConfig, model):
     non_tool_messages = [msg for msg in state["messages"] if not isinstance(msg, ToolMessage)]
     return {"messages": non_tool_messages + filtered}
 
-def update_tracking(state: TutorState):
-    """Updates the student profile and topic based on the conversation history."""
+def update_tracking(state: TutorState, model):
+    """
+    Infers and updates the student's current pedagogical learning state
+    from the recent conversation context.
+    """
+
     print("-------> Updating tracking information...")
 
-    last_user_msg = next(
-        msg.content for msg in reversed(state["messages"])
-        if isinstance(msg, HumanMessage)
+    # -------------------------
+    # Recent conversation window
+    # -------------------------
+
+    recent_messages = state["messages"][-6:]
+
+    conversation = []
+
+    for msg in recent_messages:
+        role = "Student"
+
+        if not isinstance(msg, HumanMessage):
+            role = "Tutor"
+
+        conversation.append(f"{role}: {msg.content}")
+
+    conversation_text = "\n".join(conversation)
+
+    # -------------------------
+    # Previous learning state
+    # -------------------------
+
+    previous_state = state.get("learning_state")
+
+    previous_state_text = (
+        previous_state.model_dump_json(indent=2)
+        if previous_state
+        else "None"
     )
 
-    profile = update_student_profile(state.get("student_profile"), last_user_msg)
-    #topic = update_conversation_topic(state.get("current_topic"), last_user_msg)
+    # -------------------------
+    # Build prompt
+    # -------------------------
 
-    return {"messages": state["messages"], "student_profile": profile, "current_topic": None}
+    prompt = f"""
+{prompts.TRACKING_PROMPT}
+
+Previous learning state:
+{previous_state_text}
+
+Recent conversation:
+{conversation_text}
+"""
+
+    # -------------------------
+    # Structured extraction
+    # -------------------------
+
+    structured_llm = model.with_structured_output(LearningState)
+
+    new_learning_state = structured_llm.invoke(prompt)
+
+    # -------------------------
+    # Return updated state
+    # -------------------------
+
+    return {
+        "messages": state["messages"],
+        "learning_state": new_learning_state,
+    }

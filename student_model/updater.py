@@ -1,34 +1,33 @@
+from agent.state import LearningState
 from student_model.profile import StudentProfile
 from utils.helpers import softmax
 
-def update_student_profile(profile: StudentProfile, user_message: str) -> StudentProfile:
-    DECAY = 0.8
+def update_student_profile(profile, learning_state: LearningState):
+    """
+    Slow-changing behavioral adaptation.
+    """
 
-    profile.asks_exercise *= DECAY
-    profile.asks_detail *= DECAY
-    profile.asks_objectivity *= DECAY
-    
-    text = user_message.lower()
+    alpha = 0.1
 
-    if "exercise" in text or "practice" in text:
-        profile.asks_exercise += 1
+    if learning_state.response_style == "detailed":
+        profile.prefers_detailed = (
+            (1 - alpha) * profile.prefers_detailed + alpha
+        )
 
-    if "detail" in text or "example" in text:
-        profile.asks_detail += 1
+    if learning_state.wants_examples:
+        profile.prefers_examples = (
+            (1 - alpha) * profile.prefers_examples + alpha
+        )
 
-    if "summarize" in text or "direct" in text:
-        profile.asks_objectivity += 1
+    if learning_state.wants_exercises:
+        profile.prefers_exercises = (
+            (1 - alpha) * profile.prefers_exercises + alpha
+        )
 
-    scores = {
-        "analytical": profile.asks_detail,
-        "explorer": profile.asks_exercise,
-        "objective": profile.asks_objectivity,
-    }
-
-    probs = softmax(scores)
-
-    profile.current_profile = max(probs, key=probs.get)
-    profile.confidence = probs[profile.current_profile]
+    if learning_state.response_style == "interactive":
+        profile.prefers_interactive = (
+            (1 - alpha) * profile.prefers_interactive + alpha
+        )
 
     return profile
 

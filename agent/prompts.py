@@ -1,3 +1,30 @@
+TRACKING_PROMPT = """
+You are updating the pedagogical state of a tutoring session.
+
+Analyze the latest student message considering the previous learning state.
+
+Extract:
+
+1. Current topic
+2. Subtopic
+3. Student intent
+4. Preferred explanation style
+5. Estimated comprehension level
+6. Whether the student wants:
+   - exercises
+   - examples
+   - concise explanation
+   - detailed explanation
+7. Frustration/confusion level
+8. Confidence in your analysis
+
+Rules:
+- Focus on CURRENT interaction behavior, not personality.
+- Students may change preferences dynamically.
+- Infer intentions semantically, not by keywords only.
+- Keep outputs concise and structured.
+"""
+
 DECIDE_PROMPT = """
 You must decide how to handle the user's message.
 
