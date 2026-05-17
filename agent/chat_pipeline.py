@@ -27,7 +27,7 @@ def load_pipeline(discipline_name: str):
         generation_llm=init_chat_model(
             "gpt-4o-mini",
             temperature=float(os.getenv("MODEL_TEMPERATURE", 0))
-        ).bind_tools([retrieve_tool]),
+        ),
 
         tracking_llm=init_chat_model(
             "gpt-4.1-nano",
@@ -45,6 +45,6 @@ def load_pipeline(discipline_name: str):
         )
     )
 
-    graph = build_graph(config, retrieve_tool, models)
+    graph = build_graph(config, retriever, models)
 
     return graph, tutor_prompt, config

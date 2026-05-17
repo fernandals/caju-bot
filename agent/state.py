@@ -37,6 +37,8 @@ class LearningState(BaseModel):
     confidence: float = 0.5
 
 class AnswerPlan(BaseModel):
+    needs_retrieval: bool
+
     strategy: Literal[
         "direct_answer",
         "guided_teaching",
@@ -45,13 +47,19 @@ class AnswerPlan(BaseModel):
         "step_by_step"
     ]
 
-    concepts_to_cover: list[str]
+    concepts_to_cover: list[str] = []
 
-    use_examples: bool = False
-
-    use_analogies: bool = False
-
+    include_examples: bool = False
     include_exercises: bool = False
+    include_analogies: bool = False
+
+    response_depth: Literal[
+        "light",
+        "medium",
+        "deep"
+    ] = "medium"
+
+    confidence: float = 0.5
 
 class RetrievedDocument(BaseModel):
     content: str

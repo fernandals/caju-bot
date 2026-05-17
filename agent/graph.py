@@ -1,28 +1,33 @@
-from agent.nodes import generate_answer, decide, update_tracking
+from agent.nodes import generate_answer, plan_instruction, update_tracking, grade_documents, retrieve_documents
 from agent.state import TutorState, TutorConfig
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from functools import partial
-from agent.nodes import generate_answer, decide, update_tracking, grade_documents  
 
-def build_graph(config: TutorConfig, retrieve_tool, models) -> StateGraph[TutorState]:
+def route_after_planning(state: TutorState):
+    if state["answer_plan"].needs_retrieval:
+        return "retrieve"
+
+    return "generate_answer"
+
+def build_graph(config: TutorConfig, retriever, models) -> StateGraph[TutorState]:
     graph = StateGraph(TutorState)
 
     graph.add_node("tracking", partial(update_tracking, model=models.tracking_llm))
-    graph.add_node("decide", partial(decide, config=config, model=models.planning_llm))
-    graph.add_node("retrieve", ToolNode([retrieve_tool]))
+    graph.add_node("planning", partial(plan_instruction, config=config, model=models.planning_llm))
+    graph.add_node("retrieve", partial(retrieve_documents, retriever=retriever))
     graph.add_node("grade_documents", partial(grade_documents, config=config, model=models.grading_llm))
     graph.add_node("generate_answer", partial(generate_answer, config=config, model=models.generation_llm))
 
     graph.add_edge(START, "tracking")
-    graph.add_edge("tracking", "decide")
+    graph.add_edge("tracking", "planning")
 
     graph.add_conditional_edges(
-        "decide",
-        tools_condition,
+        "planning",
+        route_after_planning,
         {
-            "tools": "retrieve",
-            END: END,
+            "retrieve": "retrieve",
+            "generate_answer": "generate_answer",
         },
     )
 
