@@ -37,7 +37,7 @@ class LearningState(BaseModel):
     confidence: float = 0.5
 
 class AnswerPlan(BaseModel):
-    needs_retrieval: bool
+    needs_retrieval: bool = True
 
     strategy: Literal[
         "direct_answer",
@@ -57,7 +57,7 @@ class AnswerPlan(BaseModel):
         "light",
         "medium",
         "deep"
-    ] = "medium"
+    ] = "light"
 
     confidence: float = 0.5
 
@@ -77,7 +77,7 @@ class TutorConfig(BaseModel):
 class TutorState(MessagesState):
     student_profile: StudentProfile
     
-    learning_state: LearningState = LearningState()
+    learning_state: LearningState = LearningState() # type: ignore
 
     retrieved_docs: list[RetrievedDocument]
 

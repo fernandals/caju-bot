@@ -1,3 +1,5 @@
+from pydantic import json
+
 import agent.prompts as prompts
 from agent.state import AnswerPlan, LearningState, TutorState, TutorConfig
 from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage, AIMessage
@@ -167,10 +169,23 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
 
     retrieved_docs = state.get("retrieved_docs", [])
 
-    context = "\n\n".join(
-        doc.page_content
-        for doc in retrieved_docs
-    )
+    print(f"{len(retrieved_docs)} documents retrieved for generation.")
+
+    context_blocks = []
+
+    for i, doc in enumerate(retrieved_docs, 1):
+        block = f"""
+[DOCUMENT {i}]
+
+CONTENT:
+{doc.page_content}
+
+METADATA:
+{doc.metadata}
+"""
+        context_blocks.append(block)
+
+    context = "\n\n".join(context_blocks)
 
     # -------------------------
     # Learning state
@@ -216,41 +231,103 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     }
 
 def grade_documents(state: TutorState, config: TutorConfig, model):
-    """Filters retrieved chunks by relevance before generation."""
+    """
+    Filters retrieved documents by semantic relevance
+    before answer generation.
+    """
+
     print("-------> Grading retrieved documents for relevance...")
 
-    question = next(
-        (msg.content for msg in reversed(state["messages"]) if isinstance(msg, HumanMessage)),
-        None
-    )
-    if not question:
-        raise ValueError("No HumanMessage found during document grading.")
+    # -------------------------
+    # Latest user question
+    # -------------------------
 
-    tool_message = next(
-        (msg for msg in reversed(state["messages"]) if isinstance(msg, ToolMessage)),
+    question = next(
+        (
+            msg.content
+            for msg in reversed(state["messages"])
+            if isinstance(msg, HumanMessage)
+        ),
         None
     )
-    chunks = [c.strip() for c in tool_message.content.split("---CHUNK---") if c.strip()]
-    print(len(chunks), "chunks retrieved for grading.")
+
+    if not question:
+        raise ValueError(
+            "No HumanMessage found during document grading."
+        )
+    
+    # -------------------------
+    # Retrieved docs
+    # -------------------------
+
+    retrieved_docs = state.get("retrieved_docs", [])
+
+    print(
+        f"{len(retrieved_docs)} chunks retrieved for grading."
+    )
+
+    if not retrieved_docs:
+        return {
+            "retrieved_docs": [],
+        }
+
+    # -------------------------
+    # Structured grader
+    # -------------------------
 
     grader = model.with_structured_output(GradeDocument)
 
-    system = SystemMessage(content=(prompts.GRADE_PROMPT.format(domain=config.subject)))
+    system = SystemMessage(
+        content=prompts.GRADE_PROMPT.format(
+            domain=config.subject
+        )
+    )
 
-    relevant_chunks = []
-    for chunk in chunks:
+     # -------------------------
+    # Grade each chunk
+    # -------------------------
+
+    relevant_docs = []
+
+    for doc in retrieved_docs:
+
         result: GradeDocument = grader.invoke([
             system,
-            HumanMessage(content=f"Question: {question}\n\nChunk: {chunk}")
+            HumanMessage(
+                content=f"""
+Student question:
+{question}
+
+Retrieved chunk:
+{doc.page_content}
+"""
+            )
         ])
+
         if result.relevant:
-            relevant_chunks.append(chunk)
+            relevant_docs.append(doc)
 
-    # if nothing passed, keep all chunks as fallback to avoid empty context
-    filtered = relevant_chunks if relevant_chunks else chunks
+    # -------------------------
+    # Fallback
+    # -------------------------
 
-    # rebuild messages replacing old ToolMessages with filtered ones
-    non_tool_messages = [msg for msg in state["messages"] if not isinstance(msg, ToolMessage)]
-    return {"messages": non_tool_messages + filtered}
+    filtered_docs = (
+        relevant_docs
+        if relevant_docs
+        else retrieved_docs
+    )
 
+    print(
+        f"{len(filtered_docs)} chunks kept after grading."
+    )
 
+    # -------------------------
+    # Return updated state
+    # -------------------------
+
+    return {
+        "messages": state["messages"],
+        "learning_state": state["learning_state"],
+        "answer_plan": state["answer_plan"],
+        "retrieved_docs": filtered_docs,
+    }

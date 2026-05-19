@@ -71,7 +71,14 @@ def load_knowledge_base(discipline_name: str):
                 embedding_function=embeddings
             )
             
-            return vectorstore.as_retriever(search_kwargs={"k": 4})
+            return vectorstore.as_retriever(
+              search_type="mmr",
+              search_kwargs={
+                "k": 5,
+                "fetch_k": 20,
+                "lambda_mult": 0.7
+              }
+            )
     
     raise ValueError(f"No knowledge base found for discipline: {discipline_name!r}")
 
