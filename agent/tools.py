@@ -1,5 +1,5 @@
-from langchain_core.vectorstores import VectorStoreRetriever
 from dotenv import load_dotenv
+from langchain_core.vectorstores import VectorStoreRetriever
 
 load_dotenv()
 

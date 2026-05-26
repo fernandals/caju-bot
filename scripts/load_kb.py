@@ -1,5 +1,6 @@
 import json
 import os
+
 from pathlib import Path
 
 from langchain_chroma import Chroma

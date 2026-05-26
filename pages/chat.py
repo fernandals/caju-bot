@@ -1,14 +1,15 @@
+import uuid
+
 import streamlit as st
 from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage
 
 from rag.knowledge_base import list_knowledge_bases
-from agent.chat_pipeline import load_pipeline
 
+from agent.chat_pipeline import load_pipeline
 from agent.state import TutorState, StudentProfile
 
-import uuid
 from utils.helpers import save_chat, load_chats
 
 # ---------------- CONFIG ----------------

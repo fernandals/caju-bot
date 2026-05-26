@@ -1,11 +1,14 @@
-from agent.models import ModelRegistry
-from langchain.chat_models import init_chat_model
-from langchain_core.messages import SystemMessage
 import os
 
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import SystemMessage
+
 from rag.knowledge_base import load_knowledge_base
-from agent.graph import build_graph
+
 import agent.prompts as prompts
+
+from agent.models import ModelRegistry
+from agent.graph import build_graph
 from agent.state import TutorConfig
 
 

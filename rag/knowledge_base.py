@@ -1,14 +1,18 @@
+import os
+import json
+
+from datetime import datetime
 from pathlib import Path
+
+from langchain_openai import OpenAIEmbeddings
+from langchain_chroma import Chroma
+
 from rag.loader import load_documents, parse_documents
 from rag.splitter import spliting_documents
 from rag.vectorstore import build_and_persist_vectorstore
 from rag.models import KnowledgeBase
-import os
-from langchain_openai import OpenAIEmbeddings
-from langchain_chroma import Chroma
+
 from utils.helpers import generate_kb_id
-from datetime import datetime
-import json
 
 def create_and_save_knowledge_base(folder_path: str, discipline_name: str):
   kb_id = generate_kb_id()

@@ -1,9 +1,11 @@
-import fitz
-from rag.models import DocumentType
 import math
 import uuid
 import json
+import fitz
+
 from pathlib import Path
+
+from rag.models import DocumentType
 
 def detect_pdf_type(page: fitz.Page) -> DocumentType:
   width = page.mediabox_size[0]

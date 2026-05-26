@@ -1,8 +1,10 @@
-from rag.models import RawDocument, DocumentType
-import fitz
-from utils.helpers import detect_pdf_type, extract_slide_structure
 import os
 import re
+import fitz
+
+from rag.models import RawDocument, DocumentType
+
+from utils.helpers import detect_pdf_type, extract_slide_structure
 
 def load_documents(folder_pth: str) -> list[RawDocument]:
   print(f"Carregando PDFs da pasta '{folder_pth}' ...")

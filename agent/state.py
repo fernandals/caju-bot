@@ -1,6 +1,6 @@
-from langgraph.graph import MessagesState
 from pydantic import BaseModel
 from typing import Literal, Optional
+from langgraph.graph import MessagesState
 
 class StudentProfile(BaseModel):
     asks_exercise: int = 0

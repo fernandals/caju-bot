@@ -1,6 +1,7 @@
-from rag.models import RawDocument, DocumentType, DocumentChunk
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from rag.models import RawDocument, DocumentType, DocumentChunk
 
 def spliting_documents(docs: list[RawDocument]) -> list[list[DocumentChunk]]:
   print("Fazendo split dos documentos...")
