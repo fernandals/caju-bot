@@ -5,7 +5,7 @@ if __name__ == "__main__":
   folder = Path("/home/fernanda/home/langchain-rag/pdfs")
   discipline = "Software Architecture"
 
-  create_and_save_knowledge_base(folder, discipline)
+  create_and_save_knowledge_base(folder, discipline) # type: ignore
 
   kbs = list_knowledge_bases()
   for kb in kbs:

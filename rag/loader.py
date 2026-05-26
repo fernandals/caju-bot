@@ -3,14 +3,13 @@ import fitz
 from utils.helpers import detect_pdf_type, extract_slide_structure
 import os
 import re
-from pathlib import Path
 
 def load_documents(folder_pth: str) -> list[RawDocument]:
   print(f"Carregando PDFs da pasta '{folder_pth}' ...")
 
   docs = []
 
-  for file_pth in folder_pth.glob("**/*.pdf"):
+  for file_pth in folder_pth.glob("**/*.pdf"): # type: ignore
     print(f"Carregando {file_pth} ...")
     
     doc = fitz.open(file_pth)

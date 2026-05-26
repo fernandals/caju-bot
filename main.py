@@ -3,7 +3,7 @@ from rag.vectorstore import build_vectorstore
 from agent.tools import build_retrieve_tool
 import agent.prompts as prompts
 from agent.graph import build_graph
-from student_model.profile import StudentProfile
+from agent.state import StudentProfile
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage, SystemMessage
 import os
 from dotenv import load_dotenv

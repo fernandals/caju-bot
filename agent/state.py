@@ -1,7 +1,14 @@
 from langgraph.graph import MessagesState
-from student_model.profile import StudentProfile
 from pydantic import BaseModel
 from typing import Literal, Optional
+
+class StudentProfile(BaseModel):
+    asks_exercise: int = 0
+    asks_detail: int = 0
+    asks_objectivity: int = 0
+
+    current_profile: str = "neutral" # "analytical", "explorer", "objective", "neutral"
+    confidence: float = 0.0
 
 class LearningState(BaseModel):
     topic: Optional[str] = None

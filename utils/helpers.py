@@ -16,7 +16,7 @@ def detect_pdf_type(page: fitz.Page) -> DocumentType:
   )
 
 def extract_slide_structure(text: str) -> tuple[str, str]:
-  lines = [l.strip() for l in text.splitlines() if l.strip()]
+  lines = [l.strip() for l in text.splitlines() if l.strip()]  # noqa: E741
 
   if not lines:
     return "", ""
@@ -48,7 +48,7 @@ def save_chat(chat_id, chat, discipline=None):
         json.dump(data, f, indent=2)
 
 def load_chats():
-    folder = Path(f"data/chats")
+    folder = Path("data/chats")
 
     if not folder.exists():
         return []
