@@ -72,7 +72,7 @@ if st.session_state.current_kb != selected_kb:
         messages=[tutor_prompt],
         student_profile=StudentProfile(),
         current_topic=None
-    )
+    ) # type: ignore
 
 # ---------------- INIT ----------------
 if "state" not in st.session_state:
@@ -80,7 +80,7 @@ if "state" not in st.session_state:
         messages=[tutor_prompt],
         student_profile=StudentProfile(),
         current_topic=None
-    )
+    ) # type: ignore
 
 if "chat_id" not in st.session_state:
     st.session_state.chat_id = str(uuid.uuid4())
@@ -118,7 +118,7 @@ if user_input := st.chat_input("Digite sua pergunta..."):
 
             st.session_state.state = final_state
 
-            answer = final_state["messages"][-1].content
+            answer = final_state["messages"][-1].content # type: ignore
             st.markdown(answer)
 
     st.session_state.chat.append({"role": "assistant", "content": answer})

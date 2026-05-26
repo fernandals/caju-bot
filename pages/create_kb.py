@@ -1,10 +1,9 @@
 import streamlit as st
 from pathlib import Path
 import tempfile
-import os
 import re
 
-from rag.knowledge_base import create_and_save_knowledge_base, list_knowledge_bases
+from rag.knowledge_base import create_and_save_knowledge_base
 
 st.set_page_config(page_title="Criar Disciplina", layout="centered")
 
@@ -50,6 +49,6 @@ if st.button("🚀 Criar", use_container_width=True):
 
         # Processo pesado → spinner
         with st.spinner("Criando base de conhecimento..."):
-            create_and_save_knowledge_base(tmp_path, discipline_name)
+            create_and_save_knowledge_base(tmp_path, discipline_name) # type: ignore
 
     st.success(f"Base '{discipline_name}' criada com sucesso!")
