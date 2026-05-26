@@ -4,7 +4,6 @@ from langchain_core.messages import SystemMessage
 import os
 
 from rag.knowledge_base import load_knowledge_base
-from agent.tools import build_retrieve_tool
 from agent.graph import build_graph
 import agent.prompts as prompts
 from agent.state import TutorConfig
@@ -12,7 +11,6 @@ from agent.state import TutorConfig
 
 def load_pipeline(discipline_name: str):
     retriever = load_knowledge_base(discipline_name)
-    retrieve_tool = build_retrieve_tool(retriever)
 
     config = TutorConfig(subject=discipline_name)
 

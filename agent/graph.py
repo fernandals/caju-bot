@@ -1,7 +1,6 @@
 from agent.nodes import generate_answer, plan_instruction, update_tracking, grade_documents, retrieve_documents
 from agent.state import TutorState, TutorConfig
 from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
 from functools import partial
 
 def route_after_planning(state: TutorState):
@@ -40,4 +39,4 @@ def build_graph(config: TutorConfig, retriever, models) -> StateGraph[TutorState
     print("--> Graph Visualization:")
     print(graph.get_graph().draw_ascii())
 
-    return graph
+    return graph # type: ignore

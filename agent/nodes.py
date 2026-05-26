@@ -1,9 +1,6 @@
-from pydantic import json
-
 import agent.prompts as prompts
 from agent.state import AnswerPlan, LearningState, TutorState, TutorConfig
-from langchain_core.messages import HumanMessage, ToolMessage, SystemMessage, AIMessage
-from student_model.updater import update_student_profile, update_conversation_topic
+from langchain_core.messages import HumanMessage, SystemMessage
 from agent.grader import GradeDocument
 
 def update_tracking(state: TutorState, model):

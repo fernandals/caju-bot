@@ -1,11 +1,7 @@
-from langchain.tools import tool
 from langchain_core.vectorstores import VectorStoreRetriever
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
-
-from langchain.tools import tool
 
 CHUNK_SEPARATOR = "\n\n---CHUNK---\n\n"
 
