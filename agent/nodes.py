@@ -147,6 +147,11 @@ Current learning state:
     }
 
 def retrieve_documents(state: TutorState, retriever):  # noqa: F811
+    """
+    Retrieves relevant instructional documents based on the current learning state
+    and the student's question. Implements adaptive query construction to boost
+    retrieval performance.
+    """
 
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
@@ -215,6 +220,108 @@ def retrieve_documents(state: TutorState, retriever):  # noqa: F811
         "answer_plan": answer_plan,
         "retrieved_docs": docs,
     }
+
+def grade_documents(state: TutorState, config: TutorConfig, model):  # noqa: F811
+    """
+    Filters retrieved documents by semantic relevance
+    before answer generation.
+    """
+    question = next(
+        (
+            msg.content
+            for msg in reversed(state["messages"])
+            if isinstance(msg, HumanMessage)
+        ),
+        None
+    )
+
+    if not question:
+        raise ValueError(
+            "No HumanMessage found during document grading."
+        )
+
+    retrieved_docs = state.get("retrieved_docs", [])
+
+    if not retrieved_docs:
+        return {
+            "retrieved_docs": [],
+        }
+
+    learning_state = state["learning_state"]
+
+    grader = model.with_structured_output(GradeDocument)
+
+    system = SystemMessage(
+        content=prompts.GRADE_PROMPT.format(
+            domain=config.subject
+        )
+    )
+
+    scored_docs = []
+
+    for doc in retrieved_docs:
+
+        result: GradeDocument = grader.invoke([
+            system,
+            HumanMessage(
+                content=f"""
+Student question:
+{question}
+
+Learning state:
+{learning_state.model_dump_json(indent=2)}
+
+Retrieved chunk:
+{doc.page_content}
+""" 
+            )
+        ])
+
+        scored_docs.append(
+            (
+                doc,
+                result.relevance_score,
+                result.reason
+            )
+        )
+
+    # ordenar por score
+    scored_docs.sort(
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    # threshold
+    filtered_docs = [
+        doc
+        for doc, score, _
+        in scored_docs
+        if score >= 0.5
+    ]
+
+    # fallback
+    if not filtered_docs:
+        filtered_docs = [
+            doc
+            for doc, _, _
+            in scored_docs[:3]
+        ]
+
+    # DEBUG
+    # print("\n[DOCUMENT GRADING]")
+    # for doc, score, reason in scored_docs:
+    #     print("-" * 60)
+    #     print(f"Score: {score:.2f}")
+    #     print(f"Reason: {reason}")
+    #     print(doc.metadata.get("source", "unknown"))
+
+    return {
+        "messages": state["messages"],
+        "learning_state": learning_state,
+        "answer_plan": state["answer_plan"],
+        "retrieved_docs": filtered_docs,
+    }
+
 
 def generate_answer(state: TutorState, config: TutorConfig, model):
     """
@@ -309,102 +416,3 @@ METADATA:
         "retrieved_docs": retrieved_docs,
     }
 
-def grade_documents(state: TutorState, config: TutorConfig, model):
-    """
-    Filters retrieved documents by semantic relevance
-    before answer generation.
-    """
-
-    # -------------------------
-    # Latest user question
-    # -------------------------
-
-    question = next(
-        (
-            msg.content
-            for msg in reversed(state["messages"])
-            if isinstance(msg, HumanMessage)
-        ),
-        None
-    )
-
-    if not question:
-        raise ValueError(
-            "No HumanMessage found during document grading."
-        )
-    
-    # -------------------------
-    # Retrieved docs
-    # -------------------------
-
-    retrieved_docs = state.get("retrieved_docs", [])
-
-    # print(
-    #     f"{len(retrieved_docs)} chunks retrieved for grading."
-    # )
-
-    if not retrieved_docs:
-        return {
-            "retrieved_docs": [],
-        }
-
-    # -------------------------
-    # Structured grader
-    # -------------------------
-
-    grader = model.with_structured_output(GradeDocument)
-
-    system = SystemMessage(
-        content=prompts.GRADE_PROMPT.format(
-            domain=config.subject
-        )
-    )
-
-     # -------------------------
-    # Grade each chunk
-    # -------------------------
-
-    relevant_docs = []
-
-    for doc in retrieved_docs:
-
-        result: GradeDocument = grader.invoke([
-            system,
-            HumanMessage(
-                content=f"""
-Student question:
-{question}
-
-Retrieved chunk:
-{doc.page_content}
-"""
-            )
-        ])
-
-        if result.relevant:
-            relevant_docs.append(doc)
-
-    # -------------------------
-    # Fallback
-    # -------------------------
-
-    filtered_docs = (
-        relevant_docs
-        if relevant_docs
-        else retrieved_docs
-    )
-
-    # print(
-    #     f"{len(filtered_docs)} chunks kept after grading."
-    # )
-
-    # -------------------------
-    # Return updated state
-    # -------------------------
-
-    return {
-        "messages": state["messages"],
-        "learning_state": state["learning_state"],
-        "answer_plan": state["answer_plan"],
-        "retrieved_docs": filtered_docs,
-    }

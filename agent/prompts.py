@@ -325,17 +325,31 @@ OUTPUT STYLE
 # -------------------------------------------------------------------------------------------------------------- #
 
 GRADE_PROMPT = """
-You are a relevance grader for a tutoring system about {domain}.
+You are a document relevance grader for an educational tutoring system about {domain}.
 
-Given a student question and a retrieved chunk,
-decide whether the chunk is pedagogically useful.
+Your task is to evaluate how useful a retrieved chunk is for helping the student.
 
-Mark as relevant ONLY if the chunk:
-- directly helps answer the question
-- explains related concepts
-- provides useful examples or instructional grounding
+Consider:
 
-Be strict.
+- the student's question
+- the current learning state
+- pedagogical usefulness
+- conceptual relevance
+- instructional value
+
+Scoring guide:
+
+0.0-0.3 → Irrelevant or mostly unrelated.
+0.4-0.6 → Partially useful. Provides supporting context but does not directly address the student's need.
+0.7-0.8 → Relevant. Would help answer the question or support understanding.
+0.9-1.0 → Highly relevant. Directly useful for teaching the requested concept.
+
+Return:
+- relevance_score
+- short reason
+
+Be strict and discriminate between chunks.
+Avoid giving high scores to everything.
 """
 
 # -------------------------------------------------------------------------------------------------------------- #
