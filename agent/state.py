@@ -35,7 +35,6 @@ class StudentProfile(BaseModel):
         description="Confidence score (0-1) representing how reliable the inferred profile is."
     )
 
-
 class LearningState(BaseModel):
     topic: Optional[str] = Field(
         default=None,
@@ -158,6 +157,10 @@ class AnswerPlan(BaseModel):
     confidence: float = Field(
         default=0.5,
         description="Confidence score (0-1) representing reliability of the instructional plan."
+    )
+
+    rationale: str = Field(
+        description=("Short explanation of why this plan was selected.")
     )
 
 class RetrievedDocument(BaseModel):

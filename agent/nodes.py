@@ -2,8 +2,6 @@ import json
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from utils.helpers import print_tutor_state
-
 import agent.prompts as prompts
 
 from agent.grader import GradeDocument
@@ -323,19 +321,27 @@ Retrieved chunk:
 def generate_answer(state: TutorState, config: TutorConfig, model):  # noqa: F811
     """
     Generates the final pedagogical response based on:
-    - current learning state
-    - instructional plan
-    - retrieved documents (if available)
-    """
 
-    # -------------------------
-    # Latest student question
-    # -------------------------
+    - learning state
+    - instructional plan
+    - planning rationale
+    - retrieved documents
+    - recent conversation
+    """
 
     question = next(
         msg.content
         for msg in reversed(state["messages"])
         if isinstance(msg, HumanMessage)
+    )
+
+    learning_state = state["learning_state"]
+    answer_plan = state["answer_plan"]
+
+    planning_rationale = getattr(
+        answer_plan,
+        "rationale",
+        ""
     )
 
     # -------------------------
@@ -345,32 +351,64 @@ def generate_answer(state: TutorState, config: TutorConfig, model):  # noqa: F81
     retrieved_docs = state.get("retrieved_docs", [])
 
     context_blocks = []
+    references = []
 
     for i, doc in enumerate(retrieved_docs, 1):
-        block = f"""
-[DOCUMENT {i}]
+
+        ref_id = f"DOC_{i}"
+
+        metadata = getattr(
+            doc,
+            "metadata",
+            {}
+        ) or {}
+
+        source = metadata.get(
+            "source",
+            metadata.get(
+                "title",
+                f"Material {i}"
+            )
+        )
+
+        section = metadata.get(
+            "section",
+            metadata.get(
+                "chapter",
+                ""
+            )
+        )
+
+        references.append(
+            {
+                "id": ref_id,
+                "source": source,
+                "info": json.dumps(metadata, indent=2, ensure_ascii=False)
+            }
+        )
+
+        context_blocks.append(
+            f"""
+[{ref_id}]
+
+SOURCE:
+{source}
+
+SECTION:
+{section}
 
 CONTENT:
 {doc.page_content}
-
-METADATA:
-{doc.metadata}
-"""
-        context_blocks.append(block)
+""".strip()
+        )
 
     context = "\n\n".join(context_blocks)
 
-    # -------------------------
-    # Learning state
-    # -------------------------
-
-    learning_state = state["learning_state"]
-
-    # -------------------------
-    # Instructional plan
-    # -------------------------
-
-    answer_plan = state["answer_plan"]
+    reference_context = json.dumps(
+        references,
+        indent=2,
+        ensure_ascii=False,
+    )
 
     # -------------------------
     # Prompt
@@ -380,21 +418,47 @@ METADATA:
         content=prompts.GENERATE_PROMPT.format(
             domain=config.subject,
             question=question,
+            learning_state=learning_state.model_dump_json(
+                indent=2
+            ),
+            answer_plan=answer_plan.model_dump_json(
+                indent=2
+            ),
+            planning_rationale=planning_rationale,
+            references=reference_context,
             context=context,
-            learning_state=learning_state.model_dump_json(indent=2),
-            answer_plan=answer_plan.model_dump_json(indent=2),
             max_sentences=config.max_sentences,
             answer_language=config.answer_language,
         )
     )
 
     # -------------------------
+    # Recent conversation
+    # -------------------------
+
+    conversation_window = state["messages"][-8:]       
+
+    # -------------------------
     # Generation
     # -------------------------
 
     response = model.invoke(
-        [system_prompt] + state["messages"]
+        [system_prompt]
+        + conversation_window
     )
+
+    # DEBUG
+    print("\n[LEARNING STATE]")
+    print(learning_state.model_dump_json(indent=2))
+    print("\n[ANSWER PLAN]")
+    print(answer_plan.model_dump_json(indent=2))
+    print("\n[REFERENCES]")
+    print(reference_context)
+    print("\n[CONTEXT]")
+    print(context)
+    print(f"\n[RETRIEVED DOCS] {len(retrieved_docs)}")
+    print("\n[GENERATED RESPONSE]")
+    print(response.content)
 
     return {
         "messages": [response],
@@ -402,4 +466,3 @@ METADATA:
         "answer_plan": answer_plan,
         "retrieved_docs": retrieved_docs,
     }
-
