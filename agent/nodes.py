@@ -70,26 +70,26 @@ Recent conversation:
     new_learning_state = structured_llm.invoke(prompt)
 
     # DEBUG
-    print("\n" + "="*80)
-    print("TRACKING NODE DEBUG")
-    print("="*80)
+    # print("\n" + "="*80)
+    # print("TRACKING NODE DEBUG")
+    # print("="*80)
 
-    print("\n[PREVIOUS STATE]")
-    print(previous_state_text)
+    # print("\n[PREVIOUS STATE]")
+    # print(previous_state_text)
 
-    print("\n[CONVERSATION INPUT]")
-    print(conversation_text)
+    # print("\n[CONVERSATION INPUT]")
+    # print(conversation_text)
 
-    print("\n[MODEL OUTPUT - RAW]")
-    print(new_learning_state)
+    # print("\n[MODEL OUTPUT - RAW]")
+    # print(new_learning_state)
 
-    print("\n[SUMMARY]")
-    print(f"Topic: {new_learning_state.topic}")
-    print(f"Subtopic: {new_learning_state.subtopic}")
-    print(f"Intent: {new_learning_state.intent}")
-    print(f"Comprehension: {new_learning_state.comprehension_level}")
-    print(f"Frustration: {new_learning_state.frustration_level}")
-    print("="*80 + "\n")
+    # print("\n[SUMMARY]")
+    # print(f"Topic: {new_learning_state.topic}")
+    # print(f"Subtopic: {new_learning_state.subtopic}")
+    # print(f"Intent: {new_learning_state.intent}")
+    # print(f"Comprehension: {new_learning_state.comprehension_level}")
+    # print(f"Frustration: {new_learning_state.frustration_level}")
+    # print("="*80 + "\n")
 
     return {
         "messages": state["messages"],
