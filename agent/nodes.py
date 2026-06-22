@@ -125,20 +125,20 @@ Current learning state:
     )
 
     # DEBUG
-    print("\n" + "="*90)
-    print("PLANNING NODE DEBUG")
-    print("="*90)
+    # print("\n" + "="*90)
+    # print("PLANNING NODE DEBUG")
+    # print("="*90)
 
-    print("\n[LEARNING STATE]")
-    print(learning_state.model_dump_json(indent=2))
+    # print("\n[LEARNING STATE]")
+    # print(learning_state.model_dump_json(indent=2))
 
-    print("\n[LAST MESSAGES INPUT]")
-    for i, msg in enumerate(state["messages"][-6:]):
-        role = "student" if isinstance(msg, HumanMessage) else "tutor"
-        print(f"{i} | {role}: {msg.content}")
+    # print("\n[LAST MESSAGES INPUT]")
+    # for i, msg in enumerate(state["messages"][-6:]):
+    #     role = "student" if isinstance(msg, HumanMessage) else "tutor"
+    #     print(f"{i} | {role}: {msg.content}")
 
-    print("\n[ANSWER PLAN OUTPUT]")
-    print(answer_plan.model_dump_json(indent=2))
+    # print("\n[ANSWER PLAN OUTPUT]")
+    # print(answer_plan.model_dump_json(indent=2))
 
     return {
         "messages": state["messages"],
