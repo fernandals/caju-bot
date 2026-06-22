@@ -3,6 +3,8 @@ import uuid
 import json
 import fitz
 
+from typing import Any
+from pprint import pprint
 from pathlib import Path
 
 from rag.models import DocumentType
@@ -61,3 +63,182 @@ def load_chats():
             chats.append(json.load(f))
 
     return chats
+
+def print_tutor_state(
+    state: Any,
+    title: str = "TUTOR STATE",
+    show_messages: bool = True,
+    show_retrieved_docs: bool = True,
+    max_doc_chars: int = 500,
+):
+    """
+    Pretty debug visualization for the tutor state.
+
+    Parameters
+    ----------
+    state : Any
+        Current TutorState object or dict-like structure.
+
+    title : str
+        Section title printed at the top.
+
+    show_messages : bool
+        Whether to display conversation messages.
+
+    show_retrieved_docs : bool
+        Whether to display retrieved documents.
+
+    max_doc_chars : int
+        Maximum number of characters shown per retrieved document.
+    """
+
+    separator = "=" * 80
+
+    print(f"\n{separator}")
+    print(f"{title:^80}")
+    print(separator)
+
+    # --------------------------------------------------
+    # Helper
+    # --------------------------------------------------
+
+    def section(name: str):
+        print(f"\n{'-' * 30}")
+        print(name.upper())
+        print(f"{'-' * 30}")
+
+    # --------------------------------------------------
+    # Student Profile
+    # --------------------------------------------------
+
+    if "student_profile" in state:
+        section("Student Profile")
+
+        profile = state["student_profile"]
+
+        if hasattr(profile, "model_dump"):
+            pprint(profile.model_dump())
+        else:
+            pprint(profile)
+
+    # --------------------------------------------------
+    # Learning State
+    # --------------------------------------------------
+
+    if "learning_state" in state:
+        section("Learning State")
+
+        learning_state = state["learning_state"]
+
+        if hasattr(learning_state, "model_dump"):
+            pprint(learning_state.model_dump())
+        else:
+            pprint(learning_state)
+
+    # --------------------------------------------------
+    # Answer Plan
+    # --------------------------------------------------
+
+    if "answer_plan" in state:
+        section("Answer Plan")
+
+        answer_plan = state["answer_plan"]
+
+        if hasattr(answer_plan, "model_dump"):
+            pprint(answer_plan.model_dump())
+        else:
+            pprint(answer_plan)
+
+    # --------------------------------------------------
+    # Retrieved Documents
+    # --------------------------------------------------
+
+    if show_retrieved_docs and "retrieved_docs" in state:
+        section("Retrieved Documents")
+
+        docs = state.get("retrieved_docs", [])
+
+        if not docs:
+            print("No retrieved documents.")
+
+        else:
+            print(f"{len(docs)} document(s) retrieved.\n")
+
+            for i, doc in enumerate(docs, 1):
+
+                print("=" * 80)
+                print(f"[DOCUMENT {i}]")
+                print("=" * 80)
+
+                # ------------------------------------------
+                # LangChain Document support
+                # ------------------------------------------
+
+                if hasattr(doc, "page_content"):
+                    content = doc.page_content
+                    metadata = getattr(doc, "metadata", {})
+
+                # ------------------------------------------
+                # Pydantic / dict fallback
+                # ------------------------------------------
+
+                else:
+                    if hasattr(doc, "model_dump"):
+                        doc_data = doc.model_dump()
+                    else:
+                        doc_data = doc
+
+                    content = doc_data.get("content", "")
+                    metadata = {
+                        k: v
+                        for k, v in doc_data.items()
+                        if k != "content"
+                    }
+
+                # ------------------------------------------
+                # Content
+                # ------------------------------------------
+
+                truncated_content = (
+                    content[:max_doc_chars] + "..."
+                    if len(content) > max_doc_chars
+                    else content
+                )
+
+                print("\nCONTENT:\n")
+                print(truncated_content)
+
+                # ------------------------------------------
+                # Metadata
+                # ------------------------------------------
+
+                print("\nMETADATA:\n")
+
+                if metadata:
+                    pprint(metadata)
+                else:
+                    print("No metadata available.")
+
+                print("\n")
+
+    # --------------------------------------------------
+    # Messages
+    # --------------------------------------------------
+
+    if show_messages and "messages" in state:
+        section("Messages")
+
+        messages = state.get("messages", [])
+
+        if not messages:
+            print("No messages.")
+        else:
+            for i, msg in enumerate(messages, 1):
+                role = msg.__class__.__name__
+
+                content = getattr(msg, "content", str(msg))
+
+                print(f"\n[{i}] {role}")
+                print(content)
+
+    print(f"\n{separator}\n")

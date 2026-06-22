@@ -1,5 +1,7 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from utils.helpers import print_tutor_state
+
 import agent.prompts as prompts
 
 from agent.grader import GradeDocument
@@ -11,7 +13,9 @@ def update_tracking(state: TutorState, model):
     from the recent conversation context.
     """
 
-    print("-------> Updating tracking information...")
+    # print("-------> Updating tracking information...")
+
+    # print_tutor_state(state, title="tracking")
 
     # -------------------------
     # Recent conversation window
@@ -81,7 +85,9 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     It only produces a structured instructional plan that downstream
     nodes will execute.
     """
-    print("-------> Planning instructional strategy...")
+    # print("-------> Planning instructional strategy...")
+
+    # print_tutor_state(state, title="planning")
 
     learning_state = state["learning_state"]
 
@@ -117,7 +123,9 @@ Course configuration:
     }
 
 def retrieve_documents(state: TutorState, retriever):
-    print("-------> Retrieving documents...")
+    # print("-------> Retrieving documents...")
+
+    # print_tutor_state(state, title="retrieve")
 
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
@@ -150,7 +158,9 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     - retrieved documents (if available)
     """
 
-    print("-------> Generating answer...")
+    # print("-------> Generating answer...")
+
+    print_tutor_state(state, title="generate_answer")
 
     # -------------------------
     # Latest student question
@@ -168,7 +178,7 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
 
     retrieved_docs = state.get("retrieved_docs", [])
 
-    print(f"{len(retrieved_docs)} documents retrieved for generation.")
+    # print(f"{len(retrieved_docs)} documents retrieved for generation.")
 
     context_blocks = []
 
@@ -214,6 +224,8 @@ METADATA:
         )
     )
 
+    print(system_prompt.content)
+
     # -------------------------
     # Generation
     # -------------------------
@@ -221,6 +233,8 @@ METADATA:
     response = model.invoke(
         [system_prompt] + state["messages"]
     )
+
+    # print("-" * 80)
 
     return {
         "messages": [response],
@@ -235,7 +249,9 @@ def grade_documents(state: TutorState, config: TutorConfig, model):
     before answer generation.
     """
 
-    print("-------> Grading retrieved documents for relevance...")
+    # print("-------> Grading retrieved documents for relevance...")
+
+    # print_tutor_state(state, title="grade_documents")
 
     # -------------------------
     # Latest user question
@@ -261,9 +277,9 @@ def grade_documents(state: TutorState, config: TutorConfig, model):
 
     retrieved_docs = state.get("retrieved_docs", [])
 
-    print(
-        f"{len(retrieved_docs)} chunks retrieved for grading."
-    )
+    # print(
+    #     f"{len(retrieved_docs)} chunks retrieved for grading."
+    # )
 
     if not retrieved_docs:
         return {
@@ -316,9 +332,9 @@ Retrieved chunk:
         else retrieved_docs
     )
 
-    print(
-        f"{len(filtered_docs)} chunks kept after grading."
-    )
+    # print(
+    #     f"{len(filtered_docs)} chunks kept after grading."
+    # )
 
     # -------------------------
     # Return updated state

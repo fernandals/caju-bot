@@ -5,3 +5,4 @@ infos
 __pycache__/
 __init__.py
 data/
+.aider*
