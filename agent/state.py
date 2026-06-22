@@ -56,15 +56,7 @@ class LearningState(BaseModel):
         "debug_confusion"
     ] = Field(
         default="learn",
-        description=(
-            "Primary student intention in the current interaction. "
-            "'learn' = understand a new concept, "
-            "'review' = revisit known material, "
-            "'practice' = train through exercises, "
-            "'solve_problem' = solve a specific question/problem, "
-            "'exam_prep' = prepare for assessments, "
-            "'debug_confusion' = resolve misunderstanding or confusion."
-        )
+        description="Current learning objective."
     )
 
     comprehension_level: Literal[
@@ -73,56 +65,40 @@ class LearningState(BaseModel):
         "high"
     ] = Field(
         default="medium",
-        description=(
-            "Estimated student understanding of the topic. "
-            "'low' = significant confusion or beginner level, "
-            "'medium' = partial understanding, "
-            "'high' = mostly understands the concept."
-        )
+        description="Estimated understanding of the current topic."
     )
 
-    response_style: Literal[
-        "concise",
-        "detailed",
-        "interactive"
+    learning_progress: Literal[
+        "stuck",
+        "stable",
+        "improving",
+        "mastered"
     ] = Field(
-        default="detailed",
+        default="stable",
+        description="Estimated progression relative to previous turns."
+    )
+
+    current_difficulty: Optional[str] = Field(
+        default=None,
         description=(
-            "Preferred explanation style inferred from the interaction. "
-            "'concise' = short and direct, "
-            "'detailed' = deeper explanations, "
-            "'interactive' = guided reasoning with engagement."
+            "Most important misconception, confusion, "
+            "or learning obstacle currently observed."
         )
     )
 
-    wants_examples: bool = Field(
-        default=False,
-        description="Whether the student explicitly or implicitly requested examples."
-    )
-
-    wants_exercises: bool = Field(
-        default=False,
-        description="Whether the student wants exercises or practice problems."
-    )
-
-    wants_step_by_step: bool = Field(
-        default=False,
-        description="Whether the student prefers step-by-step explanations or reasoning."
+    open_question: Optional[str] = Field(
+        default=None,
+        description=(
+            "Main unresolved question the student is trying to answer."
+        )
     )
 
     frustration_level: float = Field(
         default=0.0,
-        description=(
-            "Estimated frustration or confusion level from 0 to 1. "
-            "Higher values indicate stronger confusion, frustration, or difficulty."
-        )
+        ge=0.0,
+        le=1.0,
+        description="Estimated frustration/confusion level."
     )
-
-    confidence: float = Field(
-        default=0.5,
-        description="Confidence score (0-1) representing reliability of the learning state analysis."
-    )
-
 
 class AnswerPlan(BaseModel):
     needs_retrieval: bool = Field(
@@ -192,7 +168,6 @@ class AnswerPlan(BaseModel):
         description="Confidence score (0-1) representing reliability of the instructional plan."
     )
 
-
 class RetrievedDocument(BaseModel):
     content: str = Field(
         description="Retrieved instructional content or chunk used as contextual grounding."
@@ -215,7 +190,6 @@ class RetrievedDocument(BaseModel):
             "such as beginner, intermediate, or advanced."
         )
     )
-
 
 class TutorConfig(BaseModel):
     subject: str = Field(
@@ -244,7 +218,6 @@ class TutorConfig(BaseModel):
         default=6,
         description="Approximate maximum number of sentences expected in the tutor response."
     )
-
 
 class TutorState(MessagesState):
     student_profile: StudentProfile

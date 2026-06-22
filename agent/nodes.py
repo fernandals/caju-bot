@@ -1,3 +1,5 @@
+import json
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from utils.helpers import print_tutor_state
@@ -13,32 +15,27 @@ def update_tracking(state: TutorState, model):
     from the recent conversation context.
     """
 
-    # print("-------> Updating tracking information...")
-
-    # print_tutor_state(state, title="tracking")
-
     # -------------------------
-    # Recent conversation window
+    # Conversation context
     # -------------------------
-
-    recent_messages = state["messages"][-6:]
+    messages = state["messages"]
 
     conversation = []
 
-    for msg in recent_messages:
-        role = "Student"
+    for i, msg in enumerate(messages):
+        role = "student" if isinstance(msg, HumanMessage) else "tutor"
 
-        if not isinstance(msg, HumanMessage):
-            role = "Tutor"
+        conversation.append({
+            "turn": i,
+            "role": role,
+            "content": msg.content
+        })
 
-        conversation.append(f"{role}: {msg.content}")
-
-    conversation_text = "\n".join(conversation)
+    conversation_text = json.dumps(conversation, indent=2, ensure_ascii=False)
 
     # -------------------------
-    # Previous learning state
+    # Previous state
     # -------------------------
-
     previous_state = state.get("learning_state")
 
     previous_state_text = (
@@ -54,24 +51,45 @@ def update_tracking(state: TutorState, model):
     prompt = f"""
 {prompts.TRACKING_PROMPT}
 
+---
+
 Previous learning state:
 {previous_state_text}
+
+---
 
 Recent conversation:
 {conversation_text}
 """
 
     # -------------------------
-    # Structured extraction
+    # Structured output
     # -------------------------
-
     structured_llm = model.with_structured_output(LearningState)
 
     new_learning_state = structured_llm.invoke(prompt)
 
-    # -------------------------
-    # Return updated state
-    # -------------------------
+    # DEBUG
+    print("\n" + "="*80)
+    print("TRACKING NODE DEBUG")
+    print("="*80)
+
+    print("\n[PREVIOUS STATE]")
+    print(previous_state_text)
+
+    print("\n[CONVERSATION INPUT]")
+    print(conversation_text)
+
+    print("\n[MODEL OUTPUT - RAW]")
+    print(new_learning_state)
+
+    print("\n[SUMMARY]")
+    print(f"Topic: {new_learning_state.topic}")
+    print(f"Subtopic: {new_learning_state.subtopic}")
+    print(f"Intent: {new_learning_state.intent}")
+    print(f"Comprehension: {new_learning_state.comprehension_level}")
+    print(f"Frustration: {new_learning_state.frustration_level}")
+    print("="*80 + "\n")
 
     return {
         "messages": state["messages"],
@@ -130,11 +148,18 @@ def retrieve_documents(state: TutorState, retriever):
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
 
+    question = next(
+        msg.content
+        for msg in reversed(state["messages"])
+        if isinstance(msg, HumanMessage)
+    )
+
     topic = learning_state.topic or ""
 
     concepts = answer_plan.concepts_to_cover
 
     query_parts = [
+        question,
         topic,
         *concepts,
     ]
@@ -160,7 +185,7 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
 
     # print("-------> Generating answer...")
 
-    print_tutor_state(state, title="generate_answer")
+    # print_tutor_state(state, title="generate_answer")
 
     # -------------------------
     # Latest student question
@@ -224,7 +249,7 @@ METADATA:
         )
     )
 
-    print(system_prompt.content)
+    #print(system_prompt.content)
 
     # -------------------------
     # Generation
