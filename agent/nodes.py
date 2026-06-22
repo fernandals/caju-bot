@@ -1,9 +1,7 @@
 import json
-from logging import config
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from agent import state
 from utils.helpers import print_tutor_state
 
 import agent.prompts as prompts
@@ -11,7 +9,7 @@ import agent.prompts as prompts
 from agent.grader import GradeDocument
 from agent.state import AnswerPlan, LearningState, TutorState, TutorConfig
 
-def update_tracking(state: TutorState, model):
+def update_tracking(state: TutorState, model):  # noqa: F811
     """
     Infers and updates the student's current pedagogical learning state
     from the recent conversation context.
@@ -98,7 +96,7 @@ Recent conversation:
         "learning_state": new_learning_state,
     }
 
-def plan_instruction(state: TutorState, config: TutorConfig, model):
+def plan_instruction(state: TutorState, config: TutorConfig, model):  # noqa: F811
     """
     Determines the pedagogical response strategy for the current interaction.
     The node does NOT generate the final answer.
@@ -322,18 +320,13 @@ Retrieved chunk:
         "retrieved_docs": filtered_docs,
     }
 
-
-def generate_answer(state: TutorState, config: TutorConfig, model):
+def generate_answer(state: TutorState, config: TutorConfig, model):  # noqa: F811
     """
     Generates the final pedagogical response based on:
     - current learning state
     - instructional plan
     - retrieved documents (if available)
     """
-
-    # print("-------> Generating answer...")
-
-    # print_tutor_state(state, title="generate_answer")
 
     # -------------------------
     # Latest student question
@@ -350,8 +343,6 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     # -------------------------
 
     retrieved_docs = state.get("retrieved_docs", [])
-
-    # print(f"{len(retrieved_docs)} documents retrieved for generation.")
 
     context_blocks = []
 
@@ -397,8 +388,6 @@ METADATA:
         )
     )
 
-    #print(system_prompt.content)
-
     # -------------------------
     # Generation
     # -------------------------
@@ -406,8 +395,6 @@ METADATA:
     response = model.invoke(
         [system_prompt] + state["messages"]
     )
-
-    # print("-" * 80)
 
     return {
         "messages": [response],
