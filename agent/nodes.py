@@ -1,7 +1,9 @@
 import json
+from logging import config
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agent import state
 from utils.helpers import print_tutor_state
 
 import agent.prompts as prompts
@@ -103,26 +105,14 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     It only produces a structured instructional plan that downstream
     nodes will execute.
     """
-    # print("-------> Planning instructional strategy...")
-
-    # print_tutor_state(state, title="planning")
 
     learning_state = state["learning_state"]
 
-    system_prompt = prompts.PLANNING_PROMPT.format(
-        domain=config.subject,
-        course_level=config.course_level,
-    )
+    system_prompt = prompts.PLANNING_PROMPT
 
     planning_context = f"""
 Current learning state:
 {learning_state.model_dump_json(indent=2)}
-
-Course configuration:
-- Subject: {config.subject}
-- Course level: {config.course_level}
-- Maximum sentences: {config.max_sentences}
-- Answer language: {config.answer_language}
 """
 
     structured_model = model.with_structured_output(AnswerPlan)
@@ -133,6 +123,22 @@ Course configuration:
             SystemMessage(content=planning_context),
         ] + state["messages"][-6:]
     )
+
+    # DEBUG
+    print("\n" + "="*90)
+    print("PLANNING NODE DEBUG")
+    print("="*90)
+
+    print("\n[LEARNING STATE]")
+    print(learning_state.model_dump_json(indent=2))
+
+    print("\n[LAST MESSAGES INPUT]")
+    for i, msg in enumerate(state["messages"][-6:]):
+        role = "student" if isinstance(msg, HumanMessage) else "tutor"
+        print(f"{i} | {role}: {msg.content}")
+
+    print("\n[ANSWER PLAN OUTPUT]")
+    print(answer_plan.model_dump_json(indent=2))
 
     return {
         "messages": state["messages"],
@@ -156,12 +162,12 @@ def retrieve_documents(state: TutorState, retriever):
 
     topic = learning_state.topic or ""
 
-    concepts = answer_plan.concepts_to_cover
+    #concepts = answer_plan.concepts_to_cover
 
     query_parts = [
         question,
         topic,
-        *concepts,
+    #    *concepts,
     ]
 
     query = "\n".join(query_parts)

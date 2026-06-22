@@ -126,11 +126,17 @@ class AnswerPlan(BaseModel):
         )
     )
 
-    concepts_to_cover: list[str] = Field(
-        default=[],
+    response_depth: Literal[
+        "light",
+        "medium",
+        "deep"
+    ] = Field(
+        default="light",
         description=(
-            "List of important concepts, ideas, or subtopics "
-            "that should be addressed in the response."
+            "Desired explanation depth. "
+            "'light' = brief and concise, "
+            "'medium' = balanced explanation, "
+            "'deep' = detailed instructional explanation."
         )
     )
 
@@ -147,20 +153,6 @@ class AnswerPlan(BaseModel):
     include_analogies: bool = Field(
         default=False,
         description="Whether analogies or intuitive comparisons would help the explanation."
-    )
-
-    response_depth: Literal[
-        "light",
-        "medium",
-        "deep"
-    ] = Field(
-        default="light",
-        description=(
-            "Desired explanation depth. "
-            "'light' = brief and concise, "
-            "'medium' = balanced explanation, "
-            "'deep' = detailed instructional explanation."
-        )
     )
 
     confidence: float = Field(
