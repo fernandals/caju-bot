@@ -146,10 +146,7 @@ Current learning state:
         "answer_plan": answer_plan,
     }
 
-def retrieve_documents(state: TutorState, retriever):
-    # print("-------> Retrieving documents...")
-
-    # print_tutor_state(state, title="retrieve")
+def retrieve_documents(state: TutorState, retriever):  # noqa: F811
 
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
@@ -161,16 +158,54 @@ def retrieve_documents(state: TutorState, retriever):
     )
 
     topic = learning_state.topic or ""
+    subtopic = learning_state.subtopic or ""
+    intent = learning_state.intent
 
-    #concepts = answer_plan.concepts_to_cover
+    strategy = answer_plan.strategy
 
-    query_parts = [
-        question,
-        topic,
-    #    *concepts,
-    ]
+    # -------------------------
+    # Adaptive query building
+    # -------------------------
 
-    query = "\n".join(query_parts)
+    query_parts = []
+
+    # 1. question
+    query_parts.append(question)
+
+    # 2. topic and subtopic
+    if topic:
+        query_parts.append(topic)
+
+    if subtopic:
+        query_parts.append(subtopic)
+
+    # 3. intent-aware boost
+    if intent in ["debug_confusion", "learn"]:
+        query_parts.append("explanation conceptual intuition")
+
+    elif intent == "practice":
+        query_parts.append("exercises examples practice problems")
+
+    elif intent == "solve_problem":
+        query_parts.append("step by step solution reasoning")
+
+    elif intent == "exam_prep":
+        query_parts.append("summary key points review")
+    
+    # 4. strategy-aware boost
+    if strategy == "guided_teaching":
+        query_parts.append("intuitive explanation examples")
+
+    elif strategy == "exercise_first":
+        query_parts.append("practice questions exercises")
+
+    elif strategy == "step_by_step":
+        query_parts.append("step by step breakdown")
+
+    elif strategy == "hint_only":
+        query_parts.append("minimal guidance hints")
+
+    query = " ".join(query_parts)
 
     docs = retriever.invoke(query)
 
@@ -279,10 +314,6 @@ def grade_documents(state: TutorState, config: TutorConfig, model):
     Filters retrieved documents by semantic relevance
     before answer generation.
     """
-
-    # print("-------> Grading retrieved documents for relevance...")
-
-    # print_tutor_state(state, title="grade_documents")
 
     # -------------------------
     # Latest user question
