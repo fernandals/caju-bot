@@ -1,88 +1,63 @@
-import os
-import re
+from pathlib import Path
+
 import fitz
 
-from rag.models import RawDocument, DocumentType
+from rag.models import (
+    Page,
+    RawDocument,
+    RawDocumentMetadata,
+)
 
-from utils.helpers import detect_pdf_type, extract_slide_structure
+from utils.helpers import detect_pdf_type
 
-def load_documents(folder_pth: str) -> list[RawDocument]:
-  print(f"Carregando PDFs da pasta '{folder_pth}' ...")
+def load_documents(folder_path: Path) -> list[RawDocument]:
+    """
+    Loads all PDF files from a folder into RawDocument objects.
 
-  docs = []
+    This stage performs no semantic parsing.
+    It only extracts raw text, page boundaries and metadata.
+    """
 
-  for file_pth in folder_pth.glob("**/*.pdf"): # type: ignore
-    print(f"Carregando {file_pth} ...")
-    
-    doc = fitz.open(file_pth)
-    
-    num_pages = doc.page_count
-    doc_type = detect_pdf_type(doc[0])
+    print(f"Loading PDFs from '{folder_path}'...")
 
-    full_text = ""
-    page_offsets = []
+    documents: list[RawDocument] = []
 
-    for page_number, page in enumerate(doc): # type: ignore
-      text = page.get_text("text")
-      page_offsets.append({
-        "page": page_number + 1,
-        "start": len(full_text),
-        "text": text
-      })
-      full_text += text + "\n"
+    for file_path in folder_path.glob("**/*.pdf"):
 
-    metadata = {
-      "source": str(file_pth),
-      "file_path": str(os.path.basename(file_pth)),
-      "num_pages": num_pages,
-      "doc_type": doc_type.value
-    }
-      
-    docs.append(RawDocument(content=full_text, metadata=metadata, pages=page_offsets))
-  
-  return docs
+        print(f"Loading {file_path.name}...")
 
-def parse_documents(docs: list[RawDocument]) -> list[RawDocument]:
-  parsed_docs = []
+        pdf = fitz.open(file_path)
 
-  for doc in docs:
-    if doc.metadata["doc_type"] == DocumentType.SLIDES.value:
-      slides = []
+        full_text = ""
+        pages: list[Page] = []
 
-      for page in doc.pages:
-        title, body = extract_slide_structure(page["text"])
-        slides.append({
-          "page": page["page"],
-          "title": title,
-          "content": body
-        })
+        for page_number, page in enumerate(pdf, start=1): # type: ignore
 
-      doc.metadata["slides"] = slides
-      parsed_docs.append(doc)
+            text = page.get_text("text")
 
-    else:
-      section_regex = re.compile(
-        r"(?m)^(\d+(?:\.\d+)*)\s{2,}([A-Z][A-Za-z\- ]{3,60})"
-      )
+            pages.append(
+                Page(
+                    number=page_number,
+                    text=text,
+                    start_offset=len(full_text),
+                )
+            )
 
-      content = doc.content
-      sections = []
+            full_text += text + "\n"
 
-      matches = list(section_regex.finditer(content))
+        metadata = RawDocumentMetadata(
+            source=str(file_path),
+            file_path=file_path.name,
+            num_pages=pdf.page_count,
+            doc_type=detect_pdf_type(pdf[0]),
+        )
 
-      for i, m in enumerate(matches):
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+        documents.append(
+            RawDocument(
+                content=full_text,
+                pages=pages,
+                metadata=metadata,
+            )
+        )
 
-        sections.append({
-          "id": m.group(1),
-          "title": m.group(2).strip(),
-          "start": start,
-          "end": end,
-          "content": content[start:end]
-        })
-
-      doc.metadata["sections"] = sections
-      parsed_docs.append(doc)
-  
-  return parsed_docs
+    return documents

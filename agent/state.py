@@ -186,6 +186,34 @@ class RetrievedDocument(BaseModel):
         )
     )
 
+class ChunkEvidence(BaseModel):
+    """
+    Evidence extracted from a retrieved chunk.
+    """
+    doc_id: str = Field(
+        description="Reference identifier (DOC_1, DOC_2...)"
+    )
+
+    
+    section: str = Field(
+        description="Section where the evidence comes from."
+    )
+    pages: str = Field(
+        description="Page interval."
+    )
+
+    citation: str = Field(
+        description=(
+            "Exact citation that MUST be used when information from this chunk "
+            "appears in the final answer. An example citation format is: [Chapter 1, Section 1.1 Introduction to Algebra]."
+        )
+    )
+
+    evidence: list[str] = Field(
+        default_factory=list,
+        description="Atomic factual statements directly supported by this chunk."
+    )
+
 class TutorConfig(BaseModel):
     subject: str = Field(
         description="Main academic subject or course domain of the tutoring system."
@@ -222,3 +250,5 @@ class TutorState(MessagesState):
     retrieved_docs: list[RetrievedDocument]
 
     answer_plan: AnswerPlan
+
+    evidence: list[ChunkEvidence] = Field(default_factory=list) # type: ignore

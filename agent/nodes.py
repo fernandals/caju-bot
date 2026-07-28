@@ -1,17 +1,22 @@
 import json
+import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 import agent.prompts as prompts
 
 from agent.grader import GradeDocument
-from agent.state import AnswerPlan, LearningState, TutorState, TutorConfig
+from agent.state import AnswerPlan, LearningState, TutorState, TutorConfig, ChunkEvidence
+
+from rag.context_builder import build_generation_context
 
 def update_tracking(state: TutorState, model):  # noqa: F811
     """
     Infers and updates the student's current pedagogical learning state
     from the recent conversation context.
     """
+
+    start_time = time.perf_counter()
 
     # -------------------------
     # Conversation context
@@ -89,6 +94,10 @@ Recent conversation:
     # print(f"Frustration: {new_learning_state.frustration_level}")
     # print("="*80 + "\n")
 
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print(f"[TRACKING NODE] Execution time: {execution_time:.2f} seconds")
+
     return {
         "messages": state["messages"],
         "learning_state": new_learning_state,
@@ -101,6 +110,8 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):  # noqa: F8
     It only produces a structured instructional plan that downstream
     nodes will execute.
     """
+
+    start_time = time.perf_counter()
 
     learning_state = state["learning_state"]
 
@@ -136,6 +147,10 @@ Current learning state:
     # print("\n[ANSWER PLAN OUTPUT]")
     # print(answer_plan.model_dump_json(indent=2))
 
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print(f"[PLANNING NODE] Execution time: {execution_time:.2f} seconds")
+
     return {
         "messages": state["messages"],
         "learning_state": learning_state,
@@ -148,6 +163,8 @@ def retrieve_documents(state: TutorState, retriever):  # noqa: F811
     and the student's question. Implements adaptive query construction to boost
     retrieval performance.
     """
+
+    start_time = time.perf_counter()
 
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
@@ -210,6 +227,10 @@ def retrieve_documents(state: TutorState, retriever):  # noqa: F811
 
     docs = retriever.invoke(query)
 
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print(f"[DOCUMENT RETRIEVAL] Execution time: {execution_time:.2f} seconds")
+
     return {
         "messages": state["messages"],
         "learning_state": learning_state,
@@ -222,6 +243,9 @@ def grade_documents(state: TutorState, config: TutorConfig, model):  # noqa: F81
     Filters retrieved documents by semantic relevance
     before answer generation.
     """
+
+    start_time = time.perf_counter()
+
     question = next(
         (
             msg.content
@@ -311,23 +335,83 @@ Retrieved chunk:
     #     print(f"Reason: {reason}")
     #     print(doc.metadata.get("source", "unknown"))
 
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print(f"[DOCUMENT GRADING] Execution time: {execution_time:.2f} seconds")
+
     return {
         "messages": state["messages"],
         "learning_state": learning_state,
         "answer_plan": state["answer_plan"],
         "retrieved_docs": filtered_docs,
     }
+ 
+def extract_evidence(state: TutorState, config: TutorConfig, model):
 
-def generate_answer(state: TutorState, config: TutorConfig, model):  # noqa: F811
-    """
-    Generates the final pedagogical response based on:
+    start_time = time.perf_counter()
 
-    - learning state
-    - instructional plan
-    - planning rationale
-    - retrieved documents
-    - recent conversation
+    retrieved_docs = state.get("retrieved_docs", [])
+
+    if not retrieved_docs:
+        return {
+            "evidence": []
+        }
+
+    extractor = model.with_structured_output(
+        ChunkEvidence
+    )
+
+    system = SystemMessage(
+        content=prompts.EVIDENCE_PROMPT
+    )
+
+    evidence = []
+
+    for i, doc in enumerate(retrieved_docs, start=1):
+
+        metadata = doc.metadata # type: ignore
+
+        print(metadata)
+
+        result = extractor.invoke([
+            system,
+            HumanMessage(
+                content=f"""
+Reference ID:
+DOC_{i}
+
+Metadata:
+
+{metadata}
+
+Chunk:
+
+{doc.page_content}
+"""
+            )
+        ])
+
+        result.doc_id = f"DOC_{i}"
+
+        evidence.append(result)
+
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print(f"[EVIDENCE EXTRACTION] Execution time: {execution_time:.2f} seconds")
+
+    return {
+        **state,
+        "evidence": evidence,
+    }
+
+def generate_answer(state: TutorState, config: TutorConfig, model):
     """
+    Generates the final answer to the student's question based on the
+    current learning state, the instructional plan, and the retrieved
+    documents.
+    """
+
+    start_time = time.perf_counter()
 
     question = next(
         msg.content
@@ -341,78 +425,25 @@ def generate_answer(state: TutorState, config: TutorConfig, model):  # noqa: F81
     planning_rationale = getattr(
         answer_plan,
         "rationale",
-        ""
+        "",
     )
 
-    # -------------------------
-    # Retrieved context
-    # -------------------------
+    context = ""
 
-    retrieved_docs = state.get("retrieved_docs", [])
+    for ev in state["evidence"]:
 
-    context_blocks = []
-    references = []
+        context += f"""
+=======================================
 
-    for i, doc in enumerate(retrieved_docs, 1):
+SOURCE
+{ev.doc_id}
 
-        ref_id = f"DOC_{i}"
+CITATION
+{ev.citation}
 
-        metadata = getattr(
-            doc,
-            "metadata",
-            {}
-        ) or {}
-
-        source = metadata.get(
-            "source",
-            metadata.get(
-                "title",
-                f"Material {i}"
-            )
-        )
-
-        section = metadata.get(
-            "section",
-            metadata.get(
-                "chapter",
-                ""
-            )
-        )
-
-        references.append(
-            {
-                "id": ref_id,
-                "source": source,
-                "info": json.dumps(metadata, indent=2, ensure_ascii=False)
-            }
-        )
-
-        context_blocks.append(
-            f"""
-[{ref_id}]
-
-SOURCE:
-{source}
-
-SECTION:
-{section}
-
-CONTENT:
-{doc.page_content}
-""".strip()
-        )
-
-    context = "\n\n".join(context_blocks)
-
-    reference_context = json.dumps(
-        references,
-        indent=2,
-        ensure_ascii=False,
-    )
-
-    # -------------------------
-    # Prompt
-    # -------------------------
+EVIDENCE
+{chr(10).join("- "+e for e in ev.evidence)}
+"""
 
     system_prompt = SystemMessage(
         content=prompts.GENERATE_PROMPT.format(
@@ -425,44 +456,41 @@ CONTENT:
                 indent=2
             ),
             planning_rationale=planning_rationale,
-            references=reference_context,
             context=context,
-            max_sentences=config.max_sentences,
             answer_language=config.answer_language,
+            max_sentences=config.max_sentences,
         )
     )
 
-    # -------------------------
-    # Recent conversation
-    # -------------------------
-
-    conversation_window = state["messages"][-8:]       
-
-    # -------------------------
-    # Generation
-    # -------------------------
+    conversation_window = state["messages"][-8:]
 
     response = model.invoke(
         [system_prompt]
         + conversation_window
     )
 
-    # DEBUG
-    print("\n[LEARNING STATE]")
-    print(learning_state.model_dump_json(indent=2))
-    print("\n[ANSWER PLAN]")
-    print(answer_plan.model_dump_json(indent=2))
-    print("\n[REFERENCES]")
-    print(reference_context)
-    print("\n[CONTEXT]")
+    print("\n========== GENERATION ==========")
+
+    print("\nQuestion")
+    print(question)
+
+    # print("\nRetrieved Chunks")
+    # print(len(retrieved_docs))
+
+    print("\nGeneration Context")
     print(context)
-    print(f"\n[RETRIEVED DOCS] {len(retrieved_docs)}")
-    print("\n[GENERATED RESPONSE]")
+
+    print("\nGenerated Response")
     print(response.content)
+
+    end_time = time.perf_counter()
+    execution_time = end_time - start_time
+    print(f"[ANSWER GENERATION] Execution time: {execution_time:.2f} seconds")
 
     return {
         "messages": [response],
         "learning_state": learning_state,
         "answer_plan": answer_plan,
-        "retrieved_docs": retrieved_docs,
+        # "retrieved_docs": retrieved_docs,
+        "evidence": state["evidence"],
     }

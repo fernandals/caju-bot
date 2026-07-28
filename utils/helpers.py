@@ -7,7 +7,7 @@ from typing import Any
 from pprint import pprint
 from pathlib import Path
 
-from rag.models import DocumentType
+from rag.models import DocumentType, RawDocument
 
 def detect_pdf_type(page: fitz.Page) -> DocumentType:
   width = page.mediabox_size[0]
@@ -242,3 +242,25 @@ def print_tutor_state(
                 print(content)
 
     print(f"\n{separator}\n")
+
+def offset_to_page(
+    offset: int,
+    doc: RawDocument,
+) -> int:
+    """
+    Maps a character offset back to its page number.
+    """
+
+    pages = doc.pages
+
+    for i, page in enumerate(pages):
+
+        if i == len(pages) - 1:
+            return page.number
+
+        next_page = pages[i + 1]
+
+        if page.start_offset <= offset < next_page.start_offset:
+            return page.number
+
+    return pages[-1].number
