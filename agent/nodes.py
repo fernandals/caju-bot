@@ -356,6 +356,11 @@ Chunk:
 
         evidence.append(result)
 
+        print(f"[EVIDENCE EXTRACTION] Processed DOC_{i} / {len(retrieved_docs)}")
+        print(f"[EVIDENCE EXTRACTION] Result: {result.model_dump_json(indent=2)}")
+        print(f"[EVIDENCE EXTRACTION] Retrieved document content: {doc.page_content}")
+        print(f"[EVIDENCE EXTRACTION] Retrieved document metadata: {metadata}")
+
     end_time = time.perf_counter()
     execution_time = end_time - start_time
     print(f"[EVIDENCE EXTRACTION] Execution time: {execution_time:.2f} seconds")

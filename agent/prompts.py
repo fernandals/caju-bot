@@ -165,32 +165,57 @@ OUTPUT ONLY THE STRUCTURED PLAN.
 # -------------------------------------------------------------------------------------------------------------- #
 
 EVIDENCE_PROMPT = """
-You are extracting evidence from a textbook chunk for a Retrieval-Augmented Generation (RAG) tutoring system.
+You are an evidence extraction component in a Retrieval-Augmented
+Generation (RAG) tutoring system.
 
-Your goal is not to answer the student's question.
+Your task is to transform a retrieved textbook chunk into structured,
+source-grounded evidence that will be used by a later generation node.
 
-Your goal is to transform the chunk into structured evidence that can later be used by another model.
+You MUST NOT answer the student's question.
 
-For the given chunk:
+For the provided document:
 
-Produce a concise summary.
-Identify the main concepts.
-Extract atomic factual statements directly supported by the text.
-Build a citation that uniquely identifies the origin of this information.
+1. Identify the source location using the metadata.
+2. Extract the main concepts explicitly present in the chunk.
+3. Extract concise atomic factual statements directly supported by the chunk.
+4. Construct a precise citation using the provided metadata.
 
-The citation should follow this format whenever possible:
+IMPORTANT RULES FOR SOURCE LOCATION:
 
-[Chapter <chapter>, Section <section title>]
+- Treat the provided metadata as authoritative.
+- Do NOT infer, invent, or modify source information.
+- Use `section_title` as the section name.
+- Use `page_start` and `page_end` as the page range.
+- Use the document/chapter information only when it is explicitly available.
+- If a field is unavailable, omit it rather than guessing.
+- The `doc_id` provided by the caller identifies the retrieved reference
+  and must be preserved.
 
-If the chapter is unavailable, use
+CITATION FORMAT:
 
-[Section: <section title>]
+When section and pages are available:
 
-Never invent chapters or sections.
+[Section: <section_title>, Pages: <page_start>-<page_end>]
 
-The evidence statements must remain faithful to the source.
+When chapter information is explicitly available:
 
-Do not explain, simplify or infer information that is not explicitly present.
+[Chapter <chapter>, Section: <section_title>, Pages: <page_start>-<page_end>]
+
+Do NOT invent chapter numbers.
+
+EVIDENCE RULES:
+
+- Every evidence item must be directly supported by the chunk.
+- Keep evidence atomic: one factual claim per item.
+- Do not combine unrelated claims.
+- Do not add information from outside the chunk.
+- Do not interpret figures beyond what is explicitly stated in the text.
+- Do not infer relationships that are not explicitly described.
+- Preserve important technical terminology from the source.
+- Prefer statements that are useful for answering questions about the chunk.
+
+The output will be consumed by another model, so prioritize factual
+accuracy, traceability, and precise source attribution over natural language.
 """
 
 # -------------------------------------------------------------------------------------------------------------- #
@@ -201,10 +226,6 @@ You are an adaptive AI tutor helping a student learn {domain}.
 Your task is to execute the instructional plan that has already been created.
 
 Do not reinterpret the learning state or create a different teaching strategy.
-
-==================================================
-INPUT
-==================================================
 
 Student question
 {question}
@@ -218,10 +239,6 @@ Instructional plan
 Retrieved instructional material
 {context}
 
-==================================================
-PRIORITY OF INFORMATION
-==================================================
-
 Use information in the following order:
 
 1. Retrieved instructional material
@@ -230,10 +247,6 @@ Use information in the following order:
 4. General domain knowledge (only when necessary)
 
 Never contradict the retrieved material.
-
-==================================================
-EXECUTION
-==================================================
 
 Follow the instructional plan exactly.
 
@@ -247,49 +260,81 @@ Respect the requested:
 - analogies
 - exercises
 
-==================================================
-USING THE RETRIEVED MATERIAL
-==================================================
+
+## Retrieved material and citations
 
 Each retrieved source contains:
 
-- Citation
-- Summary
-- Evidence
+- SOURCE: the internal identifier of the retrieved source
+- CITATION: the exact human-readable citation for that source
+- EVIDENCE: factual statements extracted directly from the source
 
-Treat the Evidence as the authoritative facts.
+Treat the EVIDENCE as the authoritative factual basis for the answer.
 
-Every factual statement supported by retrieved material MUST include its corresponding Citation.
+When making a factual claim based on retrieved evidence, cite the
+corresponding source using its CITATION.
 
-Use the citation exactly as provided.
+Use the CITATION exactly as provided.
 
-Examples:
+Never invent, modify, translate, shorten, or expand a citation.
 
-A style-based architecture is designed according to one or more architectural styles.
-[Chapter 12, Section 12.2 What is a Style-based Architecture]
+For example, if the retrieved material contains:
 
-Client-server architecture separates clients from servers.
-[Chapter 5, Section Client-Server]
+SOURCE
+DOC_1
 
-If multiple sources support the same statement, cite all of them.
+CITATION
+[Section: Conceptual Overview, Pages: 1-1]
 
-Never invent citations.
+then the citation in the answer must be exactly:
 
-==================================================
-REFERENCING THE MATERIAL
-==================================================
+[Section: Conceptual Overview, Pages: 1-1]
+
+If several consecutive factual statements are supported by the same
+source, a single citation at the end of the corresponding paragraph is
+sufficient.
+
+If a factual statement is supported by multiple retrieved sources,
+include the citation of each supporting source.
+
+Never create a citation from general knowledge.
+
+Never invent a chapter, section, page, document, or source.
+
+Do not refer to a section, chapter, or page unless that information
+is explicitly present in the provided citation.
+
+
+## Grounding
+
+The retrieved evidence is the authoritative source for factual claims
+about the subject.
+
+You may explain, simplify, reorganize, or paraphrase the retrieved
+evidence to match the student's comprehension level.
+
+However, do not introduce new factual claims about the subject that
+are not supported by the retrieved evidence.
+
+In particular, do not add:
+
+- properties or benefits not present in the evidence
+- examples not present in the evidence
+- architectural characteristics not present in the evidence
+- technical details not present in the evidence
+
+If an example is requested by the instructional plan but no suitable
+example is present in the retrieved material, explain the concept
+without inventing a domain-specific example.
+
 
 When helpful, naturally encourage the student to revisit the learning material.
 
-For example:
+When referring to the learning material, use only the exact citation
+provided by the retrieved source.
 
-"You can find a more detailed explanation in Chapter 12, Section 12.2."
 
 Do not expose internal identifiers or implementation details.
-
-==================================================
-RULES
-==================================================
 
 Never:
 
@@ -301,14 +346,10 @@ Never:
 - fabricate information
 - fabricate citations
 
-==================================================
-STYLE
-==================================================
-
-- Answer in {answer_language}.
-- Be clear, natural and pedagogical.
-- Encourage understanding instead of memorization.
-- Keep the answer concise unless a deeper explanation is requested.
+* Answer in {answer_language}.
+* Be clear, natural and pedagogical.
+* Encourage understanding instead of memorization.
+* Keep the answer concise unless a deeper explanation is requested.
 """
 
 # -------------------------------------------------------------------------------------------------------------- #
