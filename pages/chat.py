@@ -1,16 +1,13 @@
 import uuid
 
+import langchain_core.messages
 import streamlit as st
 from dotenv import load_dotenv
 
-from langchain_core.messages import HumanMessage
-
-from rag.knowledge_base import list_knowledge_bases
-
 from agent.chat_pipeline import load_pipeline
-from agent.state import TutorState, StudentProfile
-
-from utils.helpers import save_chat, load_chats
+from agent.state import StudentProfile, TutorState
+from rag.knowledge_base import list_knowledge_bases
+from utils.helpers import load_chats, save_chat
 
 # ---------------- CONFIG ----------------
 load_dotenv()
@@ -104,39 +101,28 @@ if user_input := st.chat_input("Digite sua pergunta..."):
         st.markdown(user_input)
 
     st.session_state.state["messages"].append(
-        HumanMessage(content=user_input)
+        langchain_core.messages.HumanMessage(content=user_input)
     )
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant"):  # noqa: SIM117
         with st.spinner("Pensando..."):
-
+            
             final_state = None
 
-            for step in graph.stream(st.session_state.state):  # type: ignore
-                for _, state in step.items():
-                    final_state = state
+            for state in graph.stream(st.session_state.state, stream_mode="values"): # type: ignore
+                final_state = state
 
             st.session_state.state = final_state
 
+            print("\n========== FINAL STATE ==========")
+            print(final_state)
+
             answer = final_state["messages"][-1].content # type: ignore
+            
             st.markdown(answer)
 
     st.session_state.chat.append({"role": "assistant", "content": answer})
     save_chat(st.session_state.chat_id, st.session_state.chat, selected_kb)
-
-# ---------------- SIDEBAR ----------------
-# st.sidebar.title("Perfil do Aluno")
-
-# profile = st.session_state.state["student_profile"]
-
-# st.sidebar.metric("Perfil", profile.current_profile)
-# st.sidebar.metric("Confiança", f"{profile.confidence:.2f}")
-
-# st.sidebar.markdown("---")
-# st.sidebar.markdown("**Sinais comportamentais:**")
-# st.sidebar.markdown(f"- Pede exercício: {profile.asks_exercise:.2f}")
-# st.sidebar.markdown(f"- Pede detalhe: {profile.asks_detail:.2f}")
-# st.sidebar.markdown(f"- Pede objetividade: {profile.asks_objectivity:.2f}")
 
 st.sidebar.title("Conversas")
 
@@ -158,6 +144,5 @@ for i, chat in enumerate(chats):
         title = "Conversa vazia"
 
     if st.sidebar.button(title, key=f"chat_{chat['chat_id']}"):
-        #st.session_state.state = None
         st.session_state.chat = chat["messages"]
         st.session_state.chat_id = chat["chat_id"]

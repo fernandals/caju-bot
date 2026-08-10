@@ -1,8 +1,8 @@
 import re
 import tempfile
+from pathlib import Path
 
 import streamlit as st
-from pathlib import Path
 
 from rag.knowledge_base import create_and_save_knowledge_base
 

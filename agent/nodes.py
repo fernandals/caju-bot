@@ -4,17 +4,23 @@ import time
 from langchain_core.messages import HumanMessage, SystemMessage
 
 import agent.prompts as prompts
-
 from agent.grader import GradeDocument
-from agent.state import AnswerPlan, LearningState, TutorState, TutorConfig, ChunkEvidence
+from agent.state import (
+    AnswerPlan,
+    ChunkEvidence,
+    LearningState,
+    TutorConfig,
+    TutorState,
+)
 
-from rag.context_builder import build_generation_context
 
-def update_tracking(state: TutorState, model):  # noqa: F811
+def update_tracking(state: TutorState, model):
     """
     Infers and updates the student's current pedagogical learning state
     from the recent conversation context.
     """
+
+    print("\n========== START TRACKING ==========")
 
     start_time = time.perf_counter()
 
@@ -72,38 +78,15 @@ Recent conversation:
 
     new_learning_state = structured_llm.invoke(prompt)
 
-    # DEBUG
-    # print("\n" + "="*80)
-    # print("TRACKING NODE DEBUG")
-    # print("="*80)
-
-    # print("\n[PREVIOUS STATE]")
-    # print(previous_state_text)
-
-    # print("\n[CONVERSATION INPUT]")
-    # print(conversation_text)
-
-    # print("\n[MODEL OUTPUT - RAW]")
-    # print(new_learning_state)
-
-    # print("\n[SUMMARY]")
-    # print(f"Topic: {new_learning_state.topic}")
-    # print(f"Subtopic: {new_learning_state.subtopic}")
-    # print(f"Intent: {new_learning_state.intent}")
-    # print(f"Comprehension: {new_learning_state.comprehension_level}")
-    # print(f"Frustration: {new_learning_state.frustration_level}")
-    # print("="*80 + "\n")
-
     end_time = time.perf_counter()
     execution_time = end_time - start_time
     print(f"[TRACKING NODE] Execution time: {execution_time:.2f} seconds")
 
     return {
-        "messages": state["messages"],
         "learning_state": new_learning_state,
     }
 
-def plan_instruction(state: TutorState, config: TutorConfig, model):  # noqa: F811
+def plan_instruction(state: TutorState, config: TutorConfig, model):
     """
     Determines the pedagogical response strategy for the current interaction.
     The node does NOT generate the final answer.
@@ -111,58 +94,48 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):  # noqa: F8
     nodes will execute.
     """
 
+    print("\n========== START PLANNING ==========")
+
     start_time = time.perf_counter()
 
     learning_state = state["learning_state"]
-
-    system_prompt = prompts.PLANNING_PROMPT
 
     planning_context = f"""
 Current learning state:
 {learning_state.model_dump_json(indent=2)}
 """
 
+    prompt = f"""
+{prompts.PLANNING_PROMPT}
+
+---
+
+{planning_context}
+
+Recent conversation:
+{state["messages"][-6:]}
+"""
+
     structured_model = model.with_structured_output(AnswerPlan)
 
-    answer_plan = structured_model.invoke(
-        [
-            SystemMessage(content=system_prompt),
-            SystemMessage(content=planning_context),
-        ] + state["messages"][-6:]
-    )
-
-    # DEBUG
-    # print("\n" + "="*90)
-    # print("PLANNING NODE DEBUG")
-    # print("="*90)
-
-    # print("\n[LEARNING STATE]")
-    # print(learning_state.model_dump_json(indent=2))
-
-    # print("\n[LAST MESSAGES INPUT]")
-    # for i, msg in enumerate(state["messages"][-6:]):
-    #     role = "student" if isinstance(msg, HumanMessage) else "tutor"
-    #     print(f"{i} | {role}: {msg.content}")
-
-    # print("\n[ANSWER PLAN OUTPUT]")
-    # print(answer_plan.model_dump_json(indent=2))
+    answer_plan = structured_model.invoke(prompt)
 
     end_time = time.perf_counter()
     execution_time = end_time - start_time
     print(f"[PLANNING NODE] Execution time: {execution_time:.2f} seconds")
 
     return {
-        "messages": state["messages"],
-        "learning_state": learning_state,
         "answer_plan": answer_plan,
     }
 
-def retrieve_documents(state: TutorState, retriever):  # noqa: F811
+def retrieve_documents(state: TutorState, retriever):
     """
     Retrieves relevant instructional documents based on the current learning state
     and the student's question. Implements adaptive query construction to boost
     retrieval performance.
     """
+
+    print("\n========== START DOCUMENT RETRIEVAL ==========")
 
     start_time = time.perf_counter()
 
@@ -232,17 +205,16 @@ def retrieve_documents(state: TutorState, retriever):  # noqa: F811
     print(f"[DOCUMENT RETRIEVAL] Execution time: {execution_time:.2f} seconds")
 
     return {
-        "messages": state["messages"],
-        "learning_state": learning_state,
-        "answer_plan": answer_plan,
         "retrieved_docs": docs,
     }
 
-def grade_documents(state: TutorState, config: TutorConfig, model):  # noqa: F811
+def grade_documents(state: TutorState, config: TutorConfig, model):
     """
     Filters retrieved documents by semantic relevance
     before answer generation.
     """
+
+    print("\n========== START DOCUMENT GRADING ==========")
 
     start_time = time.perf_counter()
 
@@ -327,26 +299,17 @@ Retrieved chunk:
             in scored_docs[:3]
         ]
 
-    # DEBUG
-    # print("\n[DOCUMENT GRADING]")
-    # for doc, score, reason in scored_docs:
-    #     print("-" * 60)
-    #     print(f"Score: {score:.2f}")
-    #     print(f"Reason: {reason}")
-    #     print(doc.metadata.get("source", "unknown"))
-
     end_time = time.perf_counter()
     execution_time = end_time - start_time
     print(f"[DOCUMENT GRADING] Execution time: {execution_time:.2f} seconds")
 
     return {
-        "messages": state["messages"],
-        "learning_state": learning_state,
-        "answer_plan": state["answer_plan"],
         "retrieved_docs": filtered_docs,
     }
  
 def extract_evidence(state: TutorState, config: TutorConfig, model):
+
+    print("\n========== START EVIDENCE EXTRACTION ==========")
 
     start_time = time.perf_counter()
 
@@ -370,8 +333,6 @@ def extract_evidence(state: TutorState, config: TutorConfig, model):
     for i, doc in enumerate(retrieved_docs, start=1):
 
         metadata = doc.metadata # type: ignore
-
-        print(metadata)
 
         result = extractor.invoke([
             system,
@@ -400,7 +361,6 @@ Chunk:
     print(f"[EVIDENCE EXTRACTION] Execution time: {execution_time:.2f} seconds")
 
     return {
-        **state,
         "evidence": evidence,
     }
 
@@ -410,6 +370,8 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     current learning state, the instructional plan, and the retrieved
     documents.
     """
+
+    print("\n========== START ANSWER GENERATION ==========")
 
     start_time = time.perf_counter()
 
@@ -469,28 +431,10 @@ EVIDENCE
         + conversation_window
     )
 
-    print("\n========== GENERATION ==========")
-
-    print("\nQuestion")
-    print(question)
-
-    # print("\nRetrieved Chunks")
-    # print(len(retrieved_docs))
-
-    print("\nGeneration Context")
-    print(context)
-
-    print("\nGenerated Response")
-    print(response.content)
-
     end_time = time.perf_counter()
     execution_time = end_time - start_time
     print(f"[ANSWER GENERATION] Execution time: {execution_time:.2f} seconds")
 
     return {
-        "messages": [response],
-        "learning_state": learning_state,
-        "answer_plan": answer_plan,
-        # "retrieved_docs": retrieved_docs,
-        "evidence": state["evidence"],
+        "messages": [response]
     }

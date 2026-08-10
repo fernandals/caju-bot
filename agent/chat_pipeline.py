@@ -1,17 +1,14 @@
-import os
 import logging
-
-from langchain_openai import ChatOpenAI
+import os
 
 from langchain_core.messages import SystemMessage
-
-from rag.knowledge_base import load_knowledge_base
+from langchain_openai import ChatOpenAI
 
 import agent.prompts as prompts
-
-from agent.models import ModelRegistry
 from agent.graph import build_graph
+from agent.models import ModelRegistry
 from agent.state import TutorConfig
+from rag.knowledge_base import load_knowledge_base
 
 logger = logging.getLogger(__name__)  
 

@@ -1,9 +1,17 @@
 from functools import partial
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 
-from agent.nodes import generate_answer, plan_instruction, update_tracking, grade_documents, retrieve_documents, extract_evidence
-from agent.state import TutorState, TutorConfig
+from agent.nodes import (
+    extract_evidence,
+    generate_answer,
+    grade_documents,
+    plan_instruction,
+    retrieve_documents,
+    update_tracking,
+)
+from agent.state import TutorConfig, TutorState
+
 
 def route_after_planning(state: TutorState):
     if state["answer_plan"].needs_retrieval:

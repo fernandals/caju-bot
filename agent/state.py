@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
 from typing import Literal, Optional
+
 from langgraph.graph import MessagesState
+from pydantic import BaseModel, Field
+
 
 class StudentProfile(BaseModel):
     asks_exercise: int = Field(

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+
 @dataclass
 class ModelRegistry:
     generation_llm: any  # type: ignore
