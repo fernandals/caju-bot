@@ -102,6 +102,41 @@ class LearningState(BaseModel):
         description="Estimated frustration/confusion level."
     )
 
+class TeachingState(BaseModel):
+    """
+    Tracks where the conversation is within a multi-turn guided-teaching
+    arc for the current topic. Advanced deterministically (see
+    agent/teaching.py), not by an LLM call.
+    """
+
+    topic_anchor: tuple[Optional[str], Optional[str]] = Field(
+        default=(None, None),
+        description="(topic, subtopic) this teaching arc is tracking.",
+    )
+
+    mode: Literal["guided", "direct"] = Field(
+        default="guided",
+        description=(
+            "'guided' = pace the response according to `stage` below. "
+            "'direct' = skip the arc and answer straightforwardly (escape valve)."
+        )
+    )
+
+    stage: Literal["introduce", "check", "deepen", "wrap_up"] = Field(
+        default="introduce",
+        description=(
+            "'introduce' = orient briefly, end with one guiding question. "
+            "'check' = evaluate the student's reply to that question. "
+            "'deepen' = give the full grounded explanation. "
+            "'wrap_up' = brief recap, invite practice or the next topic."
+        )
+    )
+
+    turns_in_stage: int = Field(
+        default=0,
+        description="How many consecutive turns have been spent in the current stage.",
+    )
+
 class AnswerPlan(BaseModel):
     needs_retrieval: bool = Field(
         default=True,
@@ -198,8 +233,16 @@ class TutorConfig(BaseModel):
     )
 
     allow_direct_answers: bool = Field(
-        default=False,
-        description="Whether the tutor is allowed to provide direct answers instead of guided reasoning."
+        default=True,
+        description=(
+            "Whether the student can shortcut the guided-teaching arc by "
+            "explicitly asking for a direct answer (e.g. 'just tell me'). "
+            "Guided-first is always the default pacing; this only gates "
+            "that one explicit-request escape hatch — set False for a "
+            "course that wants guidance enforced with no shortcuts. Does "
+            "not affect the frustration/exam_prep escape valves, which "
+            "always apply regardless."
+        )
     )
 
     course_level: str = Field(
@@ -224,6 +267,8 @@ class TutorState(MessagesState):
     student_profile: StudentProfile
 
     learning_state: LearningState = LearningState()  # type: ignore
+
+    teaching_state: TeachingState = TeachingState()  # type: ignore
 
     retrieved_docs: list[Document]
 

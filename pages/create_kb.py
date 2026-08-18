@@ -69,3 +69,12 @@ if st.button("🚀 Criar", use_container_width=True):
                 "respostas menos específicas (sem capítulo/seção). Revise os "
                 "PDFs enviados se possível."
             )
+
+        if kb.stats.get("low_text_files"):
+            files = ", ".join(kb.stats["low_text_files"])
+            st.warning(
+                f"Os seguintes arquivos têm pouco ou nenhum texto extraível "
+                f"e provavelmente são PDFs escaneados ou baseados em imagem: "
+                f"{files}. O tutor não conseguirá responder perguntas sobre "
+                f"o conteúdo desses arquivos."
+            )

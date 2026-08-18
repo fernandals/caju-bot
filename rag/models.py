@@ -114,7 +114,7 @@ class DocumentChunk(BaseModel):
 class KnowledgeBase(BaseModel):
     name: str
     retriever: Any
-    stats: dict[str, int] | None = None
+    stats: dict[str, Any] | None = None
 
 class KnowledgeBaseMetadata(BaseModel):
     id: str

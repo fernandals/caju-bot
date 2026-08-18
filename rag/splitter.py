@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+import tiktoken
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -15,15 +16,28 @@ from rag.models import (
 # ==========================================================
 # Configuration
 # ==========================================================
+#
+# Both in TOKENS (not characters). Chunk packing below (split_section) and
+# the oversized-block fallback splitter must agree on the same unit, or
+# "1000" means two very different chunk sizes depending on which code path
+# a given paragraph happens to hit.
 
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 100
 
+_ENCODING_NAME = "cl100k_base"  # matches OpenAI embedding/chat tokenization
+_encoding = tiktoken.get_encoding(_ENCODING_NAME)
+
 _splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+    encoding_name=_ENCODING_NAME,
     chunk_size=CHUNK_SIZE,
     chunk_overlap=CHUNK_OVERLAP,
     add_start_index=True,
 )
+
+
+def _token_length(text: str) -> int:
+    return len(_encoding.encode(text))
 
 
 # ==========================================================
@@ -96,7 +110,7 @@ def split_section(
 
     for block in section.blocks:
 
-        block_size = len(block.content)
+        block_size = _token_length(block.content)
 
         # Very large paragraph
         if block_size > CHUNK_SIZE:

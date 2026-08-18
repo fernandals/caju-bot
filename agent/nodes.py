@@ -10,11 +10,33 @@ from agent.state import (
     AnswerPlan,
     ChunkEvidence,
     LearningState,
+    TeachingState,
     TutorConfig,
     TutorState,
 )
+from agent.teaching import advance_teaching_state
 from rag.citation import format_citation
 from rag.models import ChunkMetadata
+
+
+def build_conversation_transcript(messages) -> str:
+    """
+    Renders messages as a clean {turn, role, content} transcript for LLM
+    prompts, instead of interpolating raw BaseMessage objects (which
+    stringify with noisy internals like ids/additional_kwargs/
+    response_metadata and waste tokens).
+    """
+
+    conversation = [
+        {
+            "turn": i,
+            "role": "student" if isinstance(msg, HumanMessage) else "tutor",
+            "content": msg.content,
+        }
+        for i, msg in enumerate(messages)
+    ]
+
+    return json.dumps(conversation, indent=2, ensure_ascii=False)
 
 
 def update_tracking(state: TutorState, model):
@@ -30,20 +52,7 @@ def update_tracking(state: TutorState, model):
     # -------------------------
     # Conversation context
     # -------------------------
-    messages = state["messages"]
-
-    conversation = []
-
-    for i, msg in enumerate(messages):
-        role = "student" if isinstance(msg, HumanMessage) else "tutor"
-
-        conversation.append({
-            "turn": i,
-            "role": role,
-            "content": msg.content
-        })
-
-    conversation_text = json.dumps(conversation, indent=2, ensure_ascii=False)
+    conversation_text = build_conversation_transcript(state["messages"])
 
     # -------------------------
     # Previous state
@@ -103,9 +112,18 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
 
     learning_state = state["learning_state"]
 
+    proposed_teaching_state = advance_teaching_state(
+        state.get("teaching_state") or TeachingState(),
+        learning_state,
+    )
+
     planning_context = f"""
 Current learning state:
 {learning_state.model_dump_json(indent=2)}
+
+Proposed teaching stage (already decided by the system; see STRATEGY
+RULES above for how to use it):
+{proposed_teaching_state.model_dump_json(indent=2)}
 """
 
     prompt = f"""
@@ -116,12 +134,29 @@ Current learning state:
 {planning_context}
 
 Recent conversation:
-{state["messages"][-6:]}
+{build_conversation_transcript(state["messages"][-6:])}
 """
 
     structured_model = model.with_structured_output(AnswerPlan)
 
     answer_plan = structured_model.invoke(prompt)
+
+    # The only planning-time override of the deterministic pacing: the LLM
+    # judged the student explicitly wants directness even though the
+    # proposed stage was "guided". Keep topic_anchor/stage intact so a
+    # guided arc can resume next turn if the student re-engages. Gated on
+    # config.allow_direct_answers: when a course wants guidance enforced,
+    # this specific escape hatch is disabled (the frustration/exam_prep
+    # escape valves in advance_teaching_state still apply regardless, since
+    # those are about the student's wellbeing, not about skipping effort).
+    teaching_state = proposed_teaching_state
+
+    if (
+        answer_plan.strategy == "direct_answer"
+        and teaching_state.mode == "guided"
+        and config.allow_direct_answers
+    ):
+        teaching_state = teaching_state.model_copy(update={"mode": "direct"})
 
     end_time = time.perf_counter()
     execution_time = end_time - start_time
@@ -129,13 +164,13 @@ Recent conversation:
 
     return {
         "answer_plan": answer_plan,
+        "teaching_state": teaching_state,
     }
 
 def retrieve_documents(state: TutorState, retriever):
     """
-    Retrieves relevant instructional documents based on the current learning state
-    and the student's question. Implements adaptive query construction to boost
-    retrieval performance.
+    Retrieves relevant instructional documents based on the current learning
+    state and the student's question.
     """
 
     print("\n========== START DOCUMENT RETRIEVAL ==========")
@@ -143,7 +178,6 @@ def retrieve_documents(state: TutorState, retriever):
     start_time = time.perf_counter()
 
     learning_state = state["learning_state"]
-    answer_plan = state["answer_plan"]
 
     question = next(
         msg.content
@@ -151,55 +185,22 @@ def retrieve_documents(state: TutorState, retriever):
         if isinstance(msg, HumanMessage)
     )
 
-    topic = learning_state.topic or ""
-    subtopic = learning_state.subtopic or ""
-    intent = learning_state.intent
+    # Augment with topic/subtopic, which are genuinely part of what's being
+    # asked about. Previously this also injected intent/strategy-derived
+    # phrases (e.g. "exercises examples practice problems") into the
+    # embedding query as a relevance "boost" - removed: there was no
+    # evidence it improved retrieval, and stuffing unrelated keywords into
+    # a semantic search query risks diluting it away from the actual
+    # question rather than sharpening it.
+    query_parts = [question]
 
-    strategy = answer_plan.strategy
+    if learning_state.topic:
+        query_parts.append(learning_state.topic)
 
-    # -------------------------
-    # Adaptive query building
-    # -------------------------
+    if learning_state.subtopic:
+        query_parts.append(learning_state.subtopic)
 
-    query_parts = []
-
-    # 1. question
-    query_parts.append(question)
-
-    # 2. topic and subtopic
-    if topic:
-        query_parts.append(topic)
-
-    if subtopic:
-        query_parts.append(subtopic)
-
-    # 3. intent-aware boost
-    if intent in ["debug_confusion", "learn"]:
-        query_parts.append("explanation conceptual intuition")
-
-    elif intent == "practice":
-        query_parts.append("exercises examples practice problems")
-
-    elif intent == "solve_problem":
-        query_parts.append("step by step solution reasoning")
-
-    elif intent == "exam_prep":
-        query_parts.append("summary key points review")
-    
-    # 4. strategy-aware boost
-    if strategy == "guided_teaching":
-        query_parts.append("intuitive explanation examples")
-
-    elif strategy == "exercise_first":
-        query_parts.append("practice questions exercises")
-
-    elif strategy == "step_by_step":
-        query_parts.append("step by step breakdown")
-
-    elif strategy == "hint_only":
-        query_parts.append("minimal guidance hints")
-
-    query = " ".join(query_parts)
+    query = " ".join(query_parts) # type: ignore
 
     docs = retriever.invoke(query)
 
@@ -388,11 +389,18 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
 
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
+    teaching_state = state.get("teaching_state") or TeachingState()
 
     planning_rationale = getattr(
         answer_plan,
         "rationale",
         "",
+    )
+
+    teaching_instructions = (
+        prompts.DIRECT_MODE_INSTRUCTIONS
+        if teaching_state.mode == "direct"
+        else prompts.TEACHING_STAGE_INSTRUCTIONS[teaching_state.stage]
     )
 
     context = ""
@@ -425,6 +433,7 @@ EVIDENCE
             answer_plan=answer_plan.model_dump_json(
                 indent=2
             ),
+            teaching_instructions=teaching_instructions,
             planning_rationale=planning_rationale,
             context=context,
             answer_language=config.answer_language,

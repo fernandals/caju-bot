@@ -100,33 +100,38 @@ You are a pedagogical planning module in a tutoring system. Your job is to decid
 INPUTS:
 - student question
 - learning state
+- proposed teaching stage (see below)
 - course configuration
 
 ---
 
 PRIMARY GOAL:
-Select the most effective teaching strategy for the student’s current state.
+Fill in the remaining instructional details (depth, examples, analogies,
+exercises, retrieval) for a response whose overall pacing has ALREADY been
+decided by the system — see "PROPOSED TEACHING STAGE" in the context below.
+Do not re-decide that pacing.
 
 ---
 
 STRATEGY RULES:
 
-Use guided_teaching when:
-- concept learning is needed
-- explanation is required
-- student is confused or exploring
+The proposed teaching stage already determines most of the pacing. Set
+`strategy` to match it:
 
-Use step_by_step when:
-- procedural or sequential reasoning is needed
+- proposed stage "introduce" or "check" -> strategy = guided_teaching
+- proposed stage "deepen" or "wrap_up" -> strategy = step_by_step or
+  guided_teaching, whichever fits the content better
+- proposed mode "direct" -> strategy = direct_answer
 
-Use exercise_first when:
-- practice improves learning
+The ONE exception: if the student's own message clearly asks to skip the
+back-and-forth (explicitly wants a direct/quick answer, states time
+pressure, says "just tell me", etc.) even though the proposed mode is
+"guided", you may override and choose strategy = direct_answer. This is
+the only case where you should deviate from the proposed stage.
 
-Use hint_only when:
-- student is solving a problem
-
-Use direct_answer when:
-- question is simple and factual
+Use exercise_first or hint_only instead, regardless of stage, when the
+student is actively solving a problem themselves (intent = solve_problem)
+and wants to work through it rather than be taught the concept.
 
 If strategy = direct_answer:
   include_examples should usually be false
@@ -136,18 +141,24 @@ If strategy = direct_answer:
 
 DEPTH RULES:
 
-light → simple or review
-medium → standard explanation
-deep → complex or confusing topics
+Should generally follow the proposed stage:
+- "introduce" -> light (we are deliberately not giving the full picture yet)
+- "check" -> light or medium
+- "deepen" -> medium or deep, depending on comprehension_level and course_level
+- "wrap_up" -> light
+- mode "direct" -> whatever depth best answers the question directly
 
 ---
 
 EXAMPLES AND ANALOGIES:
 
 Enable when:
-- strategy = guided_teaching
+- stage is "deepen" or "wrap_up"
 - or concept is abstract
 - or learning_state.comprehension_level = low
+
+Prefer NOT to enable examples/analogies during "introduce" or "check" —
+let the student reason first.
 
 ---
 
@@ -197,6 +208,56 @@ accuracy, traceability, and precise source attribution over natural language.
 
 # -------------------------------------------------------------------------------------------------------------- #
 
+_CITATION_REMINDER = (
+    " This does not relax the grounding rules below: any factual claim, "
+    "example, or analogy you use must come from the retrieved evidence — "
+    "do not invent real-world examples or analogies not present in the "
+    "material just to make the explanation more relatable or to fill the "
+    "guiding question with content, even in a brief or conversational "
+    "response. If no suitable example is grounded in the material, explain "
+    "the concept without one. Any claim grounded in the evidence must "
+    "still carry its CITE_AS marker, however brief the response is."
+)
+
+TEACHING_STAGE_INSTRUCTIONS = {
+    "introduce": (
+        "This is the START of teaching this topic. Explain just enough to "
+        "orient the student in the grounded material — the essential "
+        "framing, not the full picture. End your response with exactly ONE "
+        "specific guiding question, grounded in the retrieved material, "
+        "that invites the student to reason toward the rest themselves. Do "
+        "not answer that question yourself. Do not give the complete "
+        "explanation yet." + _CITATION_REMINDER
+    ),
+    "check": (
+        "The student just replied to the guiding question you asked "
+        "previously. Evaluate their reply against the retrieved material: "
+        "acknowledge what they got right, and gently correct or fill in "
+        "what's missing or wrong. Keep it conversational and encouraging, "
+        "not a lecture. Do not repeat the same question verbatim."
+        + _CITATION_REMINDER
+    ),
+    "deepen": (
+        "Give the complete, grounded explanation of the topic now. Build "
+        "on whatever has already been discussed in this conversation "
+        "rather than starting over. Include examples/analogies/exercises "
+        "exactly as indicated in the instructional plan below."
+        + _CITATION_REMINDER
+    ),
+    "wrap_up": (
+        "Briefly recap the key takeaway in 1-2 sentences, grounded in the "
+        "material. Invite the student to try a related exercise or move "
+        "on to the next topic. Keep it short." + _CITATION_REMINDER
+    ),
+}
+
+DIRECT_MODE_INSTRUCTIONS = (
+    "Answer the student's question directly and completely right away — "
+    "do not withhold information, do not pose a guiding question first, "
+    "and do not stage the explanation across multiple turns. This student "
+    "needs a straightforward, complete answer now." + _CITATION_REMINDER
+)
+
 GENERATE_PROMPT = """
 You are an adaptive AI tutor helping a student learn {domain}.
 
@@ -212,6 +273,9 @@ Learning state
 
 Instructional plan
 {answer_plan}
+
+Teaching stage instructions
+{teaching_instructions}
 
 Retrieved instructional material
 {context}

@@ -40,7 +40,7 @@ def load_pipeline(discipline_name: str):
         subject=discipline_name,
         course_level=os.getenv("COURSE_LEVEL", "beginner"),
         answer_language=os.getenv("ANSWER_LANGUAGE", "Português"),
-        allow_direct_answers=os.getenv("ALLOW_DIRECT_ANSWERS", "False").lower() == "true"
+        allow_direct_answers=os.getenv("ALLOW_DIRECT_ANSWERS", "True").lower() == "true"
     )
 
     # --------------------------------------------------

@@ -16,9 +16,23 @@ from rag.splitter import (
 from rag.vectorstore import build_and_persist_vectorstore
 from utils.helpers import generate_kb_id
 
+# Below this average of extracted characters per page, a PDF is very
+# likely scanned/image-based rather than text - fitz would silently
+# return near-empty text for it rather than erroring, so this is the only
+# signal we have without adding OCR.
+LOW_TEXT_CHARS_PER_PAGE = 20
+
 # ==========================================================
 # Create
 # ==========================================================
+
+def detect_low_text_files(raw_documents) -> list[str]:
+    return [
+        doc.metadata.file_path
+        for doc in raw_documents
+        if doc.metadata.num_pages > 0
+        and len(doc.content) / doc.metadata.num_pages < LOW_TEXT_CHARS_PER_PAGE
+    ]
 
 def create_and_save_knowledge_base(
     folder_path: Path,
@@ -37,6 +51,14 @@ def create_and_save_knowledge_base(
 
     print("[LOAD] Loading documents...")
     raw_documents = load_documents(folder_path)
+
+    low_text_files = detect_low_text_files(raw_documents)
+
+    if low_text_files:
+        print(
+            "[LOAD] WARNING: little to no extractable text in: "
+            f"{', '.join(low_text_files)} (likely scanned/image-based PDFs)"
+        )
 
     print("[PARSE] Parsing document structure...")
     parsed_documents = parse_documents(raw_documents)
@@ -76,6 +98,7 @@ def create_and_save_knowledge_base(
         "parser_version": "1.0",
         "chunk_size": 1000,
         "chunk_overlap": 100,
+        "low_text_files": low_text_files,
     }
 
     with open(
@@ -107,6 +130,7 @@ def create_and_save_knowledge_base(
             "documents": metadata["documents"],
             "sections": metadata["sections"],
             "chunks": metadata["chunks"],
+            "low_text_files": low_text_files,
         },
     )
 
