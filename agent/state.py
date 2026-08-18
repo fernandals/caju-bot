@@ -193,21 +193,19 @@ class ChunkEvidence(BaseModel):
     Evidence extracted from a retrieved chunk.
     """
     doc_id: str = Field(
-        description="Reference identifier (DOC_1, DOC_2...)"
-    )
-
-    
-    section: str = Field(
-        description="Section where the evidence comes from."
-    )
-    pages: str = Field(
-        description="Page interval."
+        default="",
+        description=(
+            "Reference identifier (DOC_1, DOC_2...). Populated by the "
+            "system after extraction; leave as-is."
+        )
     )
 
     citation: str = Field(
+        default="",
         description=(
-            "Exact citation that MUST be used when information from this chunk "
-            "appears in the final answer. An example citation format is: [Chapter 1, Section 1.1 Introduction to Algebra]."
+            "Exact citation that MUST be used when information from this "
+            "chunk appears in the final answer. Populated by the system "
+            "from document metadata; leave as-is."
         )
     )
 

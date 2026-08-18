@@ -8,11 +8,13 @@ from rag.models import (
     SemanticBlock,
     SemanticBlockType,
 )
-
 from utils.helpers import (
+    detect_chapter_from_filename,
+    detect_chapter_header,
     extract_slide_structure,
-    offset_to_page
-  )
+    offset_to_page,
+)
+
 
 def parse_documents(
     docs: list[RawDocument],
@@ -37,7 +39,12 @@ def parse_document(
 # ==== PDFs ====
 
 SECTION_REGEX = re.compile(
-    r"(?m)^(\d+(?:\.\d+)*)\s{2,}([A-Z][A-Za-z\- ]{3,60})"
+    # [ \t]{2,} (not \s{2,}) is deliberate: \s also matches newlines, which
+    # let a bare page-number footer line bleed into the next line's
+    # capitalized text and register as a false section/chapter heading
+    # (e.g. a footer "2" immediately followed by "Note that..." on the next
+    # line was being read as section "2  Note that...").
+    r"(?m)^(\d+(?:\.\d+)*)[ \t]{2,}([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9\-,:() ]{3,60})"
 )
 
 def parse_pdf(
@@ -84,7 +91,7 @@ def extract_sections(
     matches = list(SECTION_REGEX.finditer(content))
 
     if not matches:
-        return [
+        sections = [
             Section(
                 id=None,
                 title="Document",
@@ -102,7 +109,14 @@ def extract_sections(
             )
         ]
 
+        apply_chapter_fallback(sections, doc)
+
+        return sections
+
     sections = []
+
+    current_chapter_number = None
+    current_chapter_title = None
 
     for i, match in enumerate(matches):
 
@@ -124,13 +138,27 @@ def extract_sections(
             doc,
         )
 
+        level = match.group(1).count(".") + 1
+
+        # A dot-less numbered heading (e.g. "12  Introduction") marks the
+        # start of a new chapter; deeper headings inherit it. We do not scan
+        # arbitrary body text for "Chapter N" mentions, since chapters are
+        # often referenced in passing elsewhere ("see Chapter 9 for...").
+        if level == 1:
+            current_chapter_number = match.group(1)
+
+            _, header_title = detect_chapter_header(
+                page_text_for(doc, page_start)
+            )
+            current_chapter_title = header_title
+
         section_content = content[start:end]
 
         sections.append(
             Section(
                 id=match.group(1),
                 title=match.group(2).strip(),
-                level=match.group(1).count(".") + 1,
+                level=level,
                 page_start=page_start,
                 page_end=page_end,
                 start_offset=start,
@@ -141,10 +169,47 @@ def extract_sections(
                     doc,
                     start,
                 ),
+                chapter_number=current_chapter_number,
+                chapter_title=current_chapter_title,
             )
         )
 
+    apply_chapter_fallback(sections, doc)
+
     return sections
+
+
+def page_text_for(
+    doc: RawDocument,
+    page_number: int,
+) -> str:
+    index = page_number - 1
+
+    if 0 <= index < len(doc.pages):
+        return doc.pages[index].text
+
+    return ""
+
+
+def apply_chapter_fallback(
+    sections: list[Section],
+    doc: RawDocument,
+) -> None:
+    """
+    When no chapter number could be detected from the document's own
+    structure, fall back to the filename convention (e.g. 'Chapter12.pdf').
+    """
+
+    if any(section.chapter_number for section in sections):
+        return
+
+    fallback_number = detect_chapter_from_filename(doc.metadata.file_path)
+
+    if not fallback_number:
+        return
+
+    for section in sections:
+        section.chapter_number = fallback_number
 
 # ==== SLIDES ====
 
@@ -154,9 +219,21 @@ def parse_slides(
 
     sections = []
 
+    current_chapter_number = None
+    current_chapter_title = None
+
     for page in doc.pages:
 
         title, body = extract_slide_structure(page.text)
+
+        # Slide decks typically repeat a "Chapter N. Title" running header
+        # on every content page. Carry the last detected chapter forward
+        # for pages where it's absent (e.g. the deck's cover page).
+        header_number, header_title = detect_chapter_header(page.text)
+
+        if header_number:
+            current_chapter_number = header_number
+            current_chapter_title = header_title
 
         blocks = create_semantic_blocks(
             body,
@@ -175,8 +252,12 @@ def parse_slides(
                 end_offset=page.start_offset + len(page.text),
                 content=body,
                 blocks=blocks,
+                chapter_number=current_chapter_number,
+                chapter_title=current_chapter_title,
             )
         )
+
+    apply_chapter_fallback(sections, doc)
 
     return ParsedDocument(
         metadata=doc.metadata,

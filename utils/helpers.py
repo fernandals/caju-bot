@@ -1,13 +1,24 @@
-import math
-import uuid
 import json
+import math
+import re
+import uuid
+from pathlib import Path
+from pprint import pprint
+from typing import Any
+
 import fitz
 
-from typing import Any
-from pprint import pprint
-from pathlib import Path
-
 from rag.models import DocumentType, RawDocument
+
+CHAPTER_HEADER_REGEX = re.compile(
+    r"Chapter\s+(\d+)\.\s*(.+)",
+    re.IGNORECASE,
+)
+
+CHAPTER_FILENAME_REGEX = re.compile(
+    r"Chapter[\s_-]?(\d+)",
+    re.IGNORECASE,
+)
 
 def detect_pdf_type(page: fitz.Page) -> DocumentType:
   width = page.mediabox_size[0]
@@ -20,11 +31,20 @@ def detect_pdf_type(page: fitz.Page) -> DocumentType:
   )
 
 def extract_slide_structure(text: str) -> tuple[str, str]:
-  lines = [l.strip() for l in text.splitlines() if l.strip()]  # noqa: E741
+  lines = [l.strip() for l in text.splitlines() if l.strip()]
 
   if not lines:
     return "", ""
- 
+
+  # Skip boilerplate leading lines: a repeated running header (e.g. "Book –
+  # Part I – Chapter 2. Title") and bare transition markers ("+") used
+  # between sections in some slide decks, so the slide's own heading is
+  # used as the title instead.
+  while len(lines) > 1 and (
+      CHAPTER_HEADER_REGEX.search(lines[0]) or lines[0] == "+"
+  ):
+    lines = lines[1:]
+
   title = lines[0]
   body = "\n".join(lines[1:])
 
@@ -37,6 +57,39 @@ def softmax(scores):
 
 def generate_kb_id():
     return f"kb_{uuid.uuid4().hex[:8]}"
+
+def detect_chapter_header(text: str) -> tuple[str | None, str | None]:
+    """
+    Looks for a "Chapter N. Title" running header on the FIRST LINE of the
+    given text only (e.g. a page or a section's opening page).
+
+    Deliberately does not scan the full body: chapters are often referenced
+    in passing elsewhere in the text (e.g. "see Chapter 9 for tactics..."),
+    which would misattribute chunks to the wrong chapter if matched anywhere.
+    """
+    if not text:
+        return None, None
+
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+
+    match = CHAPTER_HEADER_REGEX.search(first_line)
+
+    if not match:
+        return None, None
+
+    return match.group(1), match.group(2).strip()
+
+def detect_chapter_from_filename(file_path: str) -> str | None:
+    """
+    Fallback chapter number detection based on filename convention,
+    e.g. 'SAIA-Chapter12.pdf' -> '12'.
+    """
+    match = CHAPTER_FILENAME_REGEX.search(file_path)
+
+    if not match:
+        return None
+
+    return match.group(1)
 
 def save_chat(chat_id, chat, discipline=None):
     folder = Path("data/chats")

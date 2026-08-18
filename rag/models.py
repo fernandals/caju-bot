@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
 class DocumentType(Enum):
     SLIDES = "slides"
     PDF = "pdf"
@@ -68,6 +69,9 @@ class Section(BaseModel):
 
     blocks: list[SemanticBlock] = Field(default_factory=list)
 
+    chapter_number: str | None = None
+    chapter_title: str | None = None
+
 class ParsedDocument(BaseModel):
     metadata: RawDocumentMetadata
 
@@ -81,11 +85,16 @@ class ChunkMetadata(BaseModel):
     source: str
     file_path: str
 
+    doc_type: str
+
     page_start: int
     page_end: int
 
     section_id: str | None = None
     section_title: str | None = None
+
+    chapter_number: str | None = None
+    chapter_title: str | None = None
 
     chunk_index: int
     total_chunks: int
@@ -105,6 +114,7 @@ class DocumentChunk(BaseModel):
 class KnowledgeBase(BaseModel):
     name: str
     retriever: Any
+    stats: dict[str, int] | None = None
 
 class KnowledgeBaseMetadata(BaseModel):
     id: str

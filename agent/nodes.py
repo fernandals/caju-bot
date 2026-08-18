@@ -1,4 +1,5 @@
 import json
+import re
 import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -12,6 +13,8 @@ from agent.state import (
     TutorConfig,
     TutorState,
 )
+from rag.citation import format_citation
+from rag.models import ChunkMetadata
 
 
 def update_tracking(state: TutorState, model):
@@ -332,19 +335,12 @@ def extract_evidence(state: TutorState, config: TutorConfig, model):
 
     for i, doc in enumerate(retrieved_docs, start=1):
 
-        metadata = doc.metadata # type: ignore
+        metadata = ChunkMetadata.model_validate(doc.metadata) # type: ignore
 
         result = extractor.invoke([
             system,
             HumanMessage(
                 content=f"""
-Reference ID:
-DOC_{i}
-
-Metadata:
-
-{metadata}
-
 Chunk:
 
 {doc.page_content}
@@ -353,6 +349,7 @@ Chunk:
         ])
 
         result.doc_id = f"DOC_{i}"
+        result.citation = format_citation(metadata)
 
         evidence.append(result)
 
@@ -396,8 +393,11 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     )
 
     context = ""
+    citations_by_doc_id = {}
 
     for ev in state["evidence"]:
+
+        citations_by_doc_id[ev.doc_id] = ev.citation
 
         context += f"""
 =======================================
@@ -405,8 +405,8 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
 SOURCE
 {ev.doc_id}
 
-CITATION
-{ev.citation}
+CITE_AS
+[[CITE:{ev.doc_id}]]
 
 EVIDENCE
 {chr(10).join("- "+e for e in ev.evidence)}
@@ -436,6 +436,16 @@ EVIDENCE
         + conversation_window
     )
 
+    if isinstance(response.content, str):
+        response = response.model_copy(
+            update={
+                "content": substitute_citation_markers(
+                    response.content,
+                    citations_by_doc_id,
+                )
+            }
+        )
+
     end_time = time.perf_counter()
     execution_time = end_time - start_time
     print(f"[ANSWER GENERATION] Execution time: {execution_time:.2f} seconds")
@@ -443,3 +453,23 @@ EVIDENCE
     return {
         "messages": [response]
     }
+
+CITATION_MARKER_REGEX = re.compile(r"\[\[CITE:(DOC_\d+)\]\]")
+
+def substitute_citation_markers(
+    text: str,
+    citations_by_doc_id: dict[str, str],
+) -> str:
+    """
+    Replaces opaque [[CITE:DOC_n]] markers left by the generation model
+    with the real, deterministically-built citation for that source.
+
+    The model is deliberately never shown the human-readable citation text,
+    so it can't accidentally translate, paraphrase, or otherwise alter it
+    while writing the answer.
+    """
+
+    def replace(match: re.Match) -> str:
+        return citations_by_doc_id.get(match.group(1), "")
+
+    return CITATION_MARKER_REGEX.sub(replace, text)

@@ -50,6 +50,22 @@ if st.button("🚀 Criar", use_container_width=True):
 
         # Processo pesado → spinner
         with st.spinner("Criando base de conhecimento..."):
-            create_and_save_knowledge_base(tmp_path, discipline_name) # type: ignore
+            kb = create_and_save_knowledge_base(tmp_path, discipline_name) # type: ignore
 
     st.success(f"Base '{discipline_name}' criada com sucesso!")
+
+    if kb.stats:
+        st.caption(
+            f"{kb.stats['documents']} arquivo(s), "
+            f"{kb.stats['sections']} seção(ões) detectada(s), "
+            f"{kb.stats['chunks']} trecho(s) indexado(s)."
+        )
+
+        if kb.stats["sections"] <= kb.stats["documents"]:
+            st.warning(
+                "Poucas ou nenhuma seção foi detectada nos arquivos enviados. "
+                "Isso pode indicar que a formatação do material não foi "
+                "reconhecida corretamente, o que deixa as referências das "
+                "respostas menos específicas (sem capítulo/seção). Revise os "
+                "PDFs enviados se possível."
+            )

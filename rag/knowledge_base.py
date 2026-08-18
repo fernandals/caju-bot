@@ -1,6 +1,5 @@
 import json
 import os
-
 from datetime import datetime
 from pathlib import Path
 
@@ -8,16 +7,14 @@ from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
 from rag.loader import load_documents
+from rag.models import KnowledgeBase
 from rag.parser import parse_documents
 from rag.splitter import (
     split_documents,
     to_langchain_documents,
 )
 from rag.vectorstore import build_and_persist_vectorstore
-from rag.models import KnowledgeBase
-
 from utils.helpers import generate_kb_id
-
 
 # ==========================================================
 # Create
@@ -65,7 +62,7 @@ def create_and_save_knowledge_base(
     metadata = {
         "id": kb_id,
         "name": discipline_name,
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now().isoformat(),  # noqa: DTZ005
         "embedding_model": os.getenv(
             "EMBED_MODEL",
             "text-embedding-3-large",
@@ -106,6 +103,11 @@ def create_and_save_knowledge_base(
                 "lambda_mult": 0.7,
             },
         ),
+        stats={
+            "documents": metadata["documents"],
+            "sections": metadata["sections"],
+            "chunks": metadata["chunks"],
+        },
     )
 
 

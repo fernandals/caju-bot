@@ -173,35 +173,12 @@ source-grounded evidence that will be used by a later generation node.
 
 You MUST NOT answer the student's question.
 
-For the provided document:
+For the provided chunk, extract concise atomic factual statements directly
+supported by its content.
 
-1. Identify the source location using the metadata.
-2. Extract the main concepts explicitly present in the chunk.
-3. Extract concise atomic factual statements directly supported by the chunk.
-4. Construct a precise citation using the provided metadata.
-
-IMPORTANT RULES FOR SOURCE LOCATION:
-
-- Treat the provided metadata as authoritative.
-- Do NOT infer, invent, or modify source information.
-- Use `section_title` as the section name.
-- Use `page_start` and `page_end` as the page range.
-- Use the document/chapter information only when it is explicitly available.
-- If a field is unavailable, omit it rather than guessing.
-- The `doc_id` provided by the caller identifies the retrieved reference
-  and must be preserved.
-
-CITATION FORMAT:
-
-When section and pages are available:
-
-[Section: <section_title>, Pages: <page_start>-<page_end>]
-
-When chapter information is explicitly available:
-
-[Chapter <chapter>, Section: <section_title>, Pages: <page_start>-<page_end>]
-
-Do NOT invent chapter numbers.
+Source location and citation are handled entirely outside of this step —
+do not attempt to identify sections, pages, chapters, or construct a
+citation. Focus only on the factual content of the chunk.
 
 EVIDENCE RULES:
 
@@ -266,43 +243,48 @@ Respect the requested:
 Each retrieved source contains:
 
 - SOURCE: the internal identifier of the retrieved source
-- CITATION: the exact human-readable citation for that source
+- CITE_AS: an opaque citation marker for that source
 - EVIDENCE: factual statements extracted directly from the source
 
 Treat the EVIDENCE as the authoritative factual basis for the answer.
 
-When making a factual claim based on retrieved evidence, cite the
-corresponding source using its CITATION.
+When making a factual claim based on retrieved evidence, insert the
+corresponding source's CITE_AS marker immediately after the claim,
+copied character-for-character.
 
-Use the CITATION exactly as provided.
-
-Never invent, modify, translate, shorten, or expand a citation.
+The marker looks like [[CITE:DOC_1]]. It is NOT text: never translate,
+paraphrase, reformat, shorten, expand, or otherwise change a single
+character of it — including keeping it in this exact bracket format even
+though the rest of your answer is in {answer_language}. It will be
+replaced with the real citation automatically after you respond, so
+altering it breaks that replacement. Inserting this marker is required
+and is the one exception to "do not expose internal identifiers" below.
 
 For example, if the retrieved material contains:
 
 SOURCE
 DOC_1
 
-CITATION
-[Section: Conceptual Overview, Pages: 1-1]
+CITE_AS
+[[CITE:DOC_1]]
 
-then the citation in the answer must be exactly:
+then a claim grounded in that source must end with exactly:
 
-[Section: Conceptual Overview, Pages: 1-1]
+[[CITE:DOC_1]]
 
 If several consecutive factual statements are supported by the same
-source, a single citation at the end of the corresponding paragraph is
+source, a single marker at the end of the corresponding paragraph is
 sufficient.
 
 If a factual statement is supported by multiple retrieved sources,
-include the citation of each supporting source.
+include the marker of each supporting source.
 
 Never create a citation from general knowledge.
 
 Never invent a chapter, section, page, document, or source.
 
 Do not refer to a section, chapter, or page unless that information
-is explicitly present in the provided citation.
+is explicitly present in the provided evidence.
 
 
 ## Grounding
@@ -330,8 +312,8 @@ without inventing a domain-specific example.
 
 When helpful, naturally encourage the student to revisit the learning material.
 
-When referring to the learning material, use only the exact citation
-provided by the retrieved source.
+When referring to the learning material, use only the CITE_AS marker
+provided by the retrieved source, unchanged.
 
 
 Do not expose internal identifiers or implementation details.

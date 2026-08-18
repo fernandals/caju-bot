@@ -7,8 +7,8 @@ from rag.models import (
     RawDocument,
     RawDocumentMetadata,
 )
-
 from utils.helpers import detect_pdf_type
+
 
 def load_documents(folder_path: Path) -> list[RawDocument]:
     """

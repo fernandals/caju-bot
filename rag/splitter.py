@@ -185,10 +185,13 @@ def build_chunk(
     metadata = ChunkMetadata(
         source=document.metadata.source,
         file_path=document.metadata.file_path,
+        doc_type=document.metadata.doc_type.value,
         page_start=page_start,
         page_end=page_end,
         section_id=section.id,
         section_title=section.title,
+        chapter_number=section.chapter_number,
+        chapter_title=section.chapter_title,
         chunk_index=0,
         total_chunks=0,
         start_offset=start_offset,
@@ -211,11 +214,20 @@ def build_chunk_header(
 
     title = document.title or document.metadata.file_path
 
-    return (
-        f"Document: {title}\n"
-        f"Section: {section.title}\n"
-        f"Pages: {page_start}-{page_end}"
-    )
+    lines = [f"Document: {title}"]
+
+    if section.chapter_number:
+        chapter_label = section.chapter_number
+
+        if section.chapter_title:
+            chapter_label = f"{chapter_label} — {section.chapter_title}"
+
+        lines.append(f"Chapter: {chapter_label}")
+
+    lines.append(f"Section: {section.title}")
+    lines.append(f"Pages: {page_start}-{page_end}")
+
+    return "\n".join(lines)
 
 
 # ==========================================================
@@ -248,10 +260,13 @@ def split_large_block(
         metadata = ChunkMetadata(
             source=document.metadata.source,
             file_path=document.metadata.file_path,
+            doc_type=document.metadata.doc_type.value,
             page_start=block.page_start,
             page_end=block.page_end,
             section_id=section.id,
             section_title=section.title,
+            chapter_number=section.chapter_number,
+            chapter_title=section.chapter_title,
             chunk_index=0,
             total_chunks=0,
             start_offset=block.start_offset,
