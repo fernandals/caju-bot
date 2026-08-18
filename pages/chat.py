@@ -68,7 +68,6 @@ if st.session_state.current_kb != selected_kb:
     st.session_state.state = TutorState(
         messages=[tutor_prompt],
         student_profile=StudentProfile(),
-        current_topic=None
     ) # type: ignore
 
 # ---------------- INIT ----------------
@@ -76,7 +75,6 @@ if "state" not in st.session_state:
     st.session_state.state = TutorState(
         messages=[tutor_prompt],
         student_profile=StudentProfile(),
-        current_topic=None
     ) # type: ignore
 
 if "chat_id" not in st.session_state:

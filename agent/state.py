@@ -1,5 +1,6 @@
 from typing import Literal, Optional
 
+from langchain_core.documents import Document
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
@@ -165,29 +166,6 @@ class AnswerPlan(BaseModel):
         description=("Short explanation of why this plan was selected.")
     )
 
-class RetrievedDocument(BaseModel):
-    content: str = Field(
-        description="Retrieved instructional content or chunk used as contextual grounding."
-    )
-
-    source: str = Field(
-        description=(
-            "Human-readable instructional source reference, such as lesson name, "
-            "chapter, slide section, document title, or material reference."
-        )
-    )
-
-    relevance_score: float = Field(
-        description="Relevance score (0-1) indicating how useful the document is for the current question."
-    )
-
-    difficulty_level: str = Field(
-        description=(
-            "Estimated instructional difficulty level of the retrieved content, "
-            "such as beginner, intermediate, or advanced."
-        )
-    )
-
 class ChunkEvidence(BaseModel):
     """
     Evidence extracted from a retrieved chunk.
@@ -247,7 +225,7 @@ class TutorState(MessagesState):
 
     learning_state: LearningState = LearningState()  # type: ignore
 
-    retrieved_docs: list[RetrievedDocument]
+    retrieved_docs: list[Document]
 
     answer_plan: AnswerPlan
 

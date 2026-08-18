@@ -252,11 +252,8 @@ def grade_documents(state: TutorState, config: TutorConfig, model):
         )
     )
 
-    scored_docs = []
-
-    for doc in retrieved_docs:
-
-        result: GradeDocument = grader.invoke([
+    grading_inputs = [
+        [
             system,
             HumanMessage(
                 content=f"""
@@ -268,38 +265,39 @@ Learning state:
 
 Retrieved chunk:
 {doc.page_content}
-""" 
+"""
             )
-        ])
+        ]
+        for doc in retrieved_docs
+    ]
 
-        scored_docs.append(
-            (
-                doc,
-                result.relevance_score,
-                result.reason
-            )
-        )
+    results: list[GradeDocument] = grader.batch(grading_inputs)
+
+    scored_docs = list(zip(retrieved_docs, results))
 
     # ordenar por score
     scored_docs.sort(
-        key=lambda x: x[1],
+        key=lambda x: x[1].relevance_score,
         reverse=True
     )
 
     # threshold
     filtered_docs = [
         doc
-        for doc, score, _
+        for doc, result
         in scored_docs
-        if score >= 0.5
+        if result.relevance_score >= 0.5
     ]
 
-    # fallback
+    # fallback: only when the top scores are at least weakly relevant.
+    # Below this floor, the chunks are clearly irrelevant and shouldn't be
+    # forced into the answer just to have "something" to cite.
     if not filtered_docs:
         filtered_docs = [
             doc
-            for doc, _, _
+            for doc, result
             in scored_docs[:3]
+            if result.relevance_score >= 0.2
         ]
 
     end_time = time.perf_counter()
@@ -331,13 +329,8 @@ def extract_evidence(state: TutorState, config: TutorConfig, model):
         content=prompts.EVIDENCE_PROMPT
     )
 
-    evidence = []
-
-    for i, doc in enumerate(retrieved_docs, start=1):
-
-        metadata = ChunkMetadata.model_validate(doc.metadata) # type: ignore
-
-        result = extractor.invoke([
+    extraction_inputs = [
+        [
             system,
             HumanMessage(
                 content=f"""
@@ -346,7 +339,17 @@ Chunk:
 {doc.page_content}
 """
             )
-        ])
+        ]
+        for doc in retrieved_docs
+    ]
+
+    results: list[ChunkEvidence] = extractor.batch(extraction_inputs)
+
+    evidence = []
+
+    for i, (doc, result) in enumerate(zip(retrieved_docs, results), start=1):
+
+        metadata = ChunkMetadata.model_validate(doc.metadata) # type: ignore
 
         result.doc_id = f"DOC_{i}"
         result.citation = format_citation(metadata)
