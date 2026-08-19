@@ -1,0 +1,18 @@
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+.git/
+.mypy_cache/
+.aider*
+*.log
+*.out
+.env
+
+# Runtime chat history must not be baked into the image - mounted as a
+# volume instead (see Dockerfile/DEPLOY.md).
+data/chats/
+
+# Raw course PDFs aren't needed at runtime, only the pre-built KB under
+# data/knowledge_bases/ is.
+pdfs/

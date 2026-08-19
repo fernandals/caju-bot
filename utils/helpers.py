@@ -91,13 +91,39 @@ def detect_chapter_from_filename(file_path: str) -> str | None:
 
     return match.group(1)
 
-def save_chat(chat_id, chat, discipline=None):
+def load_roster(path: Path) -> set[str]:
+    """
+    Loads a plain-text roster of valid enrollment IDs: one per line,
+    blank lines and '#' comments ignored. Not authentication - just an
+    allowlist gate, prepared by the teacher ahead of time.
+    """
+    if not path.exists():
+        return set()
+
+    ids = set()
+
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+
+            if not line or line.startswith("#"):
+                continue
+
+            ids.add(line)
+
+    return ids
+
+def is_enrolled(student_id: str, roster: set[str]) -> bool:
+    return student_id.strip() in roster
+
+def save_chat(chat_id, chat, discipline=None, student_id=None):
     folder = Path("data/chats")
     folder.mkdir(parents=True, exist_ok=True)
 
     data = {
         "chat_id": chat_id,
         "discipline": discipline,
+        "student_id": student_id,
         "messages": chat
     }
 
