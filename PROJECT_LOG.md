@@ -78,3 +78,40 @@ A aplicação Streamlit (`app.py`, `pages/create_kb.py`, `pages/chat.py`) já su
 - Atualizar `main.py` para usar o mesmo fluxo multi-disciplina do Streamlit (ou removê-lo/consolidar com `agent/chat_pipeline.py`).
 - Paralelizar/batchar as chamadas de grading e extração de evidência.
 - Avaliação do comportamento do agente com alunos reais ou cenários simulados.
+
+---
+
+## 📅 Data
+- **2026-08-24**
+
+### 📌 Status do Projeto
+App do aluno reescrito de Streamlit para **Chainlit** (`chainlit_app.py`, substitui `student_app.py`) — o motivo foi a interface Streamlit ser sentida como limitante pra um layout de chat moderno (login → chat com histórico lateral → logout). O backend (grafo LangGraph, pipeline RAG, roster) não mudou; só a camada de UI do fluxo do aluno. O app de professor (`app.py` + `pages/`) continua em Streamlit, intocado.
+
+Login agora pede **matrícula + nome**: reaproveita a tela de login nativa do Chainlit (dois campos prontos), sem construir nada do zero — o campo "usuário" carrega a matrícula (validada contra `data/roster.txt`, mesma lógica de antes) e o campo "senha" foi realocado para capturar o nome do aluno (não é senha de verdade, não é checada contra nada). Textos relabelados via `.chainlit/translations/pt-BR.json` ("Matrícula"/"Nome completo"/"Entrar").
+
+Sidebar de conversas anteriores agora é a **sidebar nativa de threads do Chainlit** (clique pra retomar, "nova conversa"), em vez do sistema de arquivos JSON usado por `utils/chat_ui.py`/`student_app.py`. Isso exigiu um `SQLAlchemyDataLayer` (SQLite, `data/chats/chainlit.db`) — o schema oficial do Chainlit é desenhado pra Postgres (`UUID`/`JSONB`/`TEXT[]`), então foi adaptado pra colunas `TEXT` e validado empiricamente (CRUD direto + teste via WebSocket) antes de virar código final; o app de professor continua usando o JSON antigo (`utils/helpers.save_chat`/`load_chats`) sem mudanças.
+
+`_highlight_citations`/`_CITATION_PATTERN`, que viviam "privados" dentro de `utils/chat_ui.py`, foram extraídos para `utils/citations.py` (`highlight_citations` pública) — reaproveitada por `chat_ui.py` (Streamlit) e `chainlit_app.py` (Chainlit) sem duplicar a regex.
+
+Deploy: app já estava rodando no Railway (`railway up`); a troca de framework subiu junto com a criação de um **volume persistente montado em `/app/data/chats`** — lacuna pré-existente (histórico se perdia a cada redeploy) que foi corrigida como parte dessa mudança. O mount é deliberadamente em `data/chats/`, não em `data/` inteiro, porque um volume vazio ali esconderia `data/knowledge_bases/` e `data/roster.txt`, que são gravados na imagem no build.
+
+### ✅ Itens antes listados como limitação e já resolvidos
+- `test.py`/pasta `extra/` (código da primeira versão, `rag_minimal.py`) mencionados como presentes-mas-não-usados no log anterior — já não existem no repositório.
+
+### ⚠️ Limitações/trade-offs observados nesta rodada
+- Chainlit traz `literalai` como dependência obrigatória, que por sua vez puxa ~80 pacotes de instrumentação OpenTelemetry (Anthropic, Cohere, Pinecone, etc. — nada disso é usado aqui). Não tem como evitar mantendo o Chainlit; infla `requirements.txt`/build, mas não deve pesar em runtime (bibliotecas paradas).
+- Resumir uma conversa antiga pela sidebar continua "com perda", igual no Streamlit: só a lista de mensagens é restaurada, `student_profile`/`learning_state`/`teaching_state`/`evidence` resetam para o estado inicial (`on_chat_resume` em `chainlit_app.py`).
+- `main.py` continua hardcoded pra "Software Architecture" (ver limitação de 08-17, ainda não endereçada).
+
+### 🧹 Limpeza geral
+- Removido `setup.py` (código quebrado — chamava `.mkdir()` numa `str` —, sem nenhuma referência no projeto).
+- Removido `scripts/load_kb.py` (script de debug isolado, sem uso documentado).
+- `scripts/create_kb.py` finalizado como CLI de verdade (`python -m scripts.create_kb <pasta> "<disciplina>"`), sem mais caminho absoluto hardcoded de uma máquina específica — passa a ser o pipeline pretendido pro professor gerar uma KB sem precisar da UI antes de buildar a imagem Docker.
+- Removidos os 24 arquivos de tradução default do Chainlit não utilizados (só `pt-BR.json` é carregado, já que `language = "pt-BR"` é forçado em `.chainlit/config.toml`) — `.gitignore` ganhou uma regra pra evitar que voltem a ser versionados (o Chainlit os recria localmente a cada `chainlit run`, é comportamento do framework).
+- `.mypy_cache/` (138MB) adicionado ao `.gitignore` — nunca esteve tracked, mas também nunca foi ignorado explicitamente.
+
+### 🔜 Próximos Passos (revisão)
+- Mecanismo de avaliação da qualidade pedagógica da resposta (ainda pendente desde 08-17).
+- Atualizar `main.py` para o padrão multi-KB (ainda pendente desde 08-17).
+- Paralelizar/batchar grading e extração de evidência (ainda pendente desde 08-17).
+- Considerar resolver o resumo "com perda" de conversas antigas, se o perfil de aprendizado entre sessões passar a importar.

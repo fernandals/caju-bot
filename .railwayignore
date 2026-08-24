@@ -1,0 +1,14 @@
+venv/
+.venv/
+*.log
+infos
+.env
+__pycache__/
+**/__pycache__/
+__init__.py
+.aider*
+*.out
+.git/
+.mypy_cache/
+data/chats/
+pdfs/
