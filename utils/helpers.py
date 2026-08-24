@@ -1,4 +1,3 @@
-import json
 import math
 import re
 import uuid
@@ -115,33 +114,6 @@ def load_roster(path: Path) -> set[str]:
 
 def is_enrolled(student_id: str, roster: set[str]) -> bool:
     return student_id.strip() in roster
-
-def save_chat(chat_id, chat, discipline=None, student_id=None):
-    folder = Path("data/chats")
-    folder.mkdir(parents=True, exist_ok=True)
-
-    data = {
-        "chat_id": chat_id,
-        "discipline": discipline,
-        "student_id": student_id,
-        "messages": chat
-    }
-
-    with open(folder / f"{chat_id}.json", "w") as f:
-        json.dump(data, f, indent=2)
-
-def load_chats():
-    folder = Path("data/chats")
-
-    if not folder.exists():
-        return []
-
-    chats = []
-    for file in folder.glob("*.json"):
-        with open(file) as f:
-            chats.append(json.load(f))
-
-    return chats
 
 def print_tutor_state(
     state: Any,
