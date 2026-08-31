@@ -115,3 +115,47 @@ Deploy: app já estava rodando no Railway (`railway up`); a troca de framework s
 - Atualizar `main.py` para o padrão multi-KB (ainda pendente desde 08-17).
 - Paralelizar/batchar grading e extração de evidência (ainda pendente desde 08-17).
 - Considerar resolver o resumo "com perda" de conversas antigas, se o perfil de aprendizado entre sessões passar a importar.
+
+---
+
+## 📅 Data
+- **2026-08-31**
+
+### 📌 Status do Projeto
+Rodada de melhorias na interface do app do aluno (Chainlit). Nenhuma mudança no grafo/pipeline RAG; o que mudou foi a camada de UI e o empacotamento da KB.
+
+**1. Tela de login — nome deixa de aparecer como senha.** O campo "Nome completo" é o campo de senha nativo do Chainlit realocado (ver entrada de 08-24), então vinha mascarado como pontinhos. Chainlit já renderiza um botão de mostrar/ocultar ao lado do campo; `public/login-unmask.js` (carregado via `custom_js` em `.chainlit/config.toml`) só clica nesse toggle uma vez ao abrir a tela de login, deixando o nome visível como texto por padrão. Usa `MutationObserver` porque o formulário monta de forma assíncrona (SPA React); depende do DOM do login do Chainlit 2.11 (input `#password` com um `<button>` irmão), então um upgrade do Chainlit pode exigir ajuste no seletor.
+
+**2. Pop-up ao clicar "Novo chat" removido.** `confirm_new_chat = false` em `.chainlit/config.toml`. O aviso ("isto vai apagar o histórico do chat atual") é o texto genérico do Chainlit para o caso sem persistência — mas o app tem data layer, então "Novo chat" só abre uma thread nova e as anteriores continuam na sidebar. O aviso era enganoso.
+
+**3. Página "Leia-me" gerada por container.** Antes era um `chainlit.md` estático genérico. Agora:
+- `rag/knowledge_base.describe_course_materials(nome)` lê os metadados dos chunks direto do vector store persistido (via cliente `chromadb`, sem embeddings nem chamada de modelo) e devolve a lista de materiais indexados (arquivo + capítulo + título de capítulo quando detectado).
+- `chainlit_app._render_readme()` monta o markdown a partir do nome da disciplina + essa lista, e escreve em `chainlit_pt-BR.md` no import do módulo. Chainlit relê esse arquivo a cada request de `/project/settings`, e o idioma está fixo em `pt-BR`, então o arquivo gerado sempre vence.
+- `chainlit.md` virou o fallback estático (usado só se a geração falhar). `chainlit_pt-BR.md` entrou no `.gitignore` (gerado por container, efêmero).
+- Nada hardcoded sobre a disciplina — tudo sai da KB embutida na imagem.
+
+**4. Citação no chat vira link para o PDF da fonte, na página certa.** Maior mudança da rodada.
+- **Empacotamento:** `create_and_save_knowledge_base` agora copia os PDFs de origem para `data/knowledge_bases/<id>/sources/`. Como a árvore inteira da KB já é copiada para a imagem do curso, os arquivos viajam junto sem nenhum passo extra do professor. `pdfs/` (pasta de trabalho) continua fora da imagem — comentário em `.dockerignore` atualizado. Migração manual feita para a KB existente (`kb_566465a2`): os 4 PDFs de `pdfs/` copiados para `sources/`. KBs criadas antes dessa mudança precisam dessa cópia manual.
+- `rag/knowledge_base`: novos `knowledge_base_dir(nome)` e `resolve_source_pdf(nome, arquivo)`.
+- `chainlit_app._linkify_citations(final_state, answer)`: para cada citação presente na resposta cujo PDF de origem existe em `sources/`, substitui a string longa da citação (`[arquivo, Chapter X, Section Y – ..., Pages Z]`) por um rótulo curto `📄 <arquivo>, p. N` (ou `pp. N–M`) e cria um elemento `cl.Pdf(display="side", page=page_start)`. O Chainlit transforma qualquer elemento cujo `name` apareça no texto da mensagem num "chip" clicável — então o rótulo curto abre o PDF no painel lateral já na página citada. Um elemento por par `(arquivo, página)`; citações sem PDF salvo mantêm o texto completo + badge de código (`highlight_citations`, inalterado).
+- O mapa citação→metadados usa `final_state["retrieved_docs"]` + `final_state["evidence"]` (alinhados por índice — `extract_evidence` faz `zip` na mesma ordem).
+- `public/style.css` (via `custom_css`): tira o `text-transform: uppercase` e o `0.7rem` do `.element-link` do Chainlit pra o chip ficar legível.
+- Verificado no bundle do frontend: o viewer de PDF lateral respeita o prop `page` como página inicial (com clamp à faixa válida).
+
+### ⚠️ Limitações/trade-offs desta rodada
+- A citação inline perdeu o detalhe verboso (capítulo/seção/título de seção) — agora isso fica a um clique de distância, dentro do PDF. Foi decisão consciente (o texto longo era a reclamação).
+- Quando dois chunks citados caem no mesmo `(arquivo, página)`, compartilham um chip só; o rótulo (e a faixa de páginas) vem do primeiro, então um chunk citado como "p. 2" pode aparecer sob um chip "pp. 2–3".
+- Threads antigas (criadas antes desta rodada) podem dar 404 no link do PDF: sem storage de blobs configurado, o arquivo do elemento vive só durante a sessão. Threads novas funcionam. Aceitável para o piloto.
+- `chainlit_pt-BR.md` é reescrito no diretório de trabalho a cada boot do container (efêmero, regenerado sempre).
+- `login-unmask.js` e o tweak de `.element-link` dependem de detalhes internos do Chainlit 2.11 (DOM do login, classes do frontend) — frágeis a upgrade.
+
+### 🧹 Diversos
+- `public/` criado (primeiro uso de assets custom): `login-unmask.js`, `style.css`. Dockerfile passou a `COPY public/ public/`.
+- `utils/citations.py` ficou intocado no fim (uma tentativa de parâmetro `skip` foi revertida — a reescrita do texto em `_linkify_citations` tornou desnecessário).
+
+### 🔜 Próximos Passos (revisão)
+- Mecanismo de avaliação da qualidade pedagógica da resposta (ainda pendente desde 08-17).
+- Atualizar `main.py` para o padrão multi-KB (ainda pendente desde 08-17).
+- Paralelizar/batchar grading e extração de evidência (ainda pendente desde 08-17).
+- Considerar resolver o resumo "com perda" de conversas antigas, se o perfil de aprendizado entre sessões passar a importar.
+- Se persistência de elementos entre sessões passar a importar: configurar um storage client pro data layer (hoje os PDFs anexados só valem na sessão).
