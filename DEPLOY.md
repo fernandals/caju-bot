@@ -81,6 +81,27 @@ docker run -d \
 - The app comes up at `http://localhost:8501` (or whatever host/port
   you're forwarding to).
 
+## Deploying to Railway (instead of plain Docker)
+
+Railway builds this same Dockerfile. Deploy from the repo root with:
+
+```
+railway up --no-gitignore
+```
+
+**`--no-gitignore` is required.** `railway up` respects `.gitignore`,
+which excludes `data/` wholesale (the vector store is rebuilt locally,
+not versioned) — so without the flag `data/knowledge_bases/` and
+`data/roster.txt` never reach the build context and `COPY` fails with
+`"/data/roster.txt": not found`. With the flag, `.railwayignore` is the
+single source of truth for what to exclude (it already drops `venv/`,
+`.env`, `data/chats/`, `.files/`, `pdfs/`, etc.).
+
+The volume must be mounted at `/app/data/chats` (same reasoning as the
+`-v` note above). `OPENAI_API_KEY` and `CHAINLIT_AUTH_SECRET` are set as
+service variables in the Railway dashboard, not passed on the command
+line.
+
 ## Multiple courses
 
 Repeat steps 1-4 per course: a fresh knowledge base, a fresh

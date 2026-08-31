@@ -1,14 +1,35 @@
+# `railway up` respects BOTH .gitignore and .railwayignore. Our .gitignore
+# excludes data/ wholesale (the vector store is rebuilt locally, not
+# versioned), but data/knowledge_bases/ and data/roster.txt MUST ship in
+# the image. So deploy with:  railway up --no-gitignore
+# and let this file be the single source of truth for what to exclude.
+
 venv/
 .venv/
 *.log
+*.out
 infos
 .env
 __pycache__/
 **/__pycache__/
 __init__.py
 .aider*
-*.out
 .git/
 .mypy_cache/
+
+# Runtime state that lives on the mounted volume, not in the image.
 data/chats/
+
+# Chainlit's local element blob cache — runtime-only.
+.files/
+
+# Generated per container at boot from the baked-in course.
+chainlit_pt-BR.md
+
+# Only pt-BR is loaded (language is pinned in .chainlit/config.toml);
+# Chainlit re-scaffolds the rest on every run.
+.chainlit/translations/*.json
+!.chainlit/translations/pt-BR.json
+
+# Raw PDFs — the KB under data/knowledge_bases/ is what's used at runtime.
 pdfs/
