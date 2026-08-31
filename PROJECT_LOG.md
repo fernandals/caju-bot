@@ -159,3 +159,37 @@ Rodada de melhorias na interface do app do aluno (Chainlit). Nenhuma mudança no
 - Paralelizar/batchar grading e extração de evidência (ainda pendente desde 08-17).
 - Considerar resolver o resumo "com perda" de conversas antigas, se o perfil de aprendizado entre sessões passar a importar.
 - Se persistência de elementos entre sessões passar a importar: configurar um storage client pro data layer (hoje os PDFs anexados só valem na sessão).
+
+---
+
+## 📅 Data
+- **2026-08-31** (métricas pedagógicas)
+
+### 📌 Status do Projeto
+O grafo do agente já calcula sinais pedagógicos ricos por turno (`LearningState`, `AnswerPlan`, `TeachingState`, `evidence` — ver `agent/state.py`), mas eles eram descartados depois de cada resposta. Agora são capturados, de forma **anônima**, para o professor olhar sob demanda.
+
+**Modelo de dados.** Novo SQLite dedicado, `data/chats/metrics.db` — separado do `chainlit.db` (schema do framework, muda de versão pra versão), no mesmo volume já montado (`/app/data/chats` no Railway). Uma tabela `turn_metrics`, uma linha por turno: `id` (uuid aleatório na escrita), `createdAt`, `discipline`, `topic`/`subtopic`/`intent`/`comprehensionLevel`/`learningProgress`/`frustrationLevel`/`currentDifficulty` (do `LearningState`), `strategy`/`responseDepth` (do `AnswerPlan`), `teachingMode`/`teachingStage` (do `TeachingState`), `studentProfile`, e `citations` (JSON: `[{file, section_id, section_title, page_start, citation}]` derivado de `zip(retrieved_docs, evidence)`).
+
+**Anonimização por omissão, não por hash.** Nada de matrícula, `thread_id`/usuário do Chainlit, nem nada que ligue a linha a um aluno. Cada linha é um evento independente — sem correlação entre turnos da mesma sessão. Dá pra ver "a turma travou no tópico X", não "o aluno Y evoluiu no semestre". Se um dia precisar de granularidade por sessão sem reidentificar, dá pra evoluir com um token efêmero gerado no `on_chat_start` e guardado só em `cl.user_session` — mas não é o ponto de partida.
+
+**Captura.** Novo módulo `utils/metrics.py` (`ensure_metrics_schema`, `record_turn`), só stdlib — não adiciona dependência ao runtime deployado. `ensure_metrics_schema()` roda no nível de módulo em `chainlit_app.py` (junto do `_ensure_sqlite_schema()` que já existia). `record_turn(final_state, DISCIPLINE)` é chamado dentro de `@cl.on_message`, logo depois de `cl.user_session.set("state", final_state)`, via `asyncio.to_thread` (escrita SQLite síncrona, mesma lição do `_run_graph_sync` — não travar o event loop compartilhado). Extração defensiva (`_field` tolera model/dict/None — o primeiro turno pode não ter tudo populado) e a escrita inteira embrulhada em `try/except` que loga warning e segue, igual ao `execute_sql` do `SQLAlchemyDataLayer` do Chainlit.
+
+**Painel do professor.** `app.py` deixou de ser página única — agora tem `st.tabs(["Criar disciplina", "Métricas da turma"])`. A aba de métricas pede o caminho do `metrics.db` (default `data/chats/metrics.db`) ou aceita upload, lê pra um DataFrame e mostra agregados com componentes nativos do Streamlit: turnos por tópico, distribuição de compreensão e de progresso (destaque pra "travado"), frustração média por dia (linha), estratégias mais usadas, e **cobertura do material** — cruza as `citations` registradas com `rag.knowledge_base.list_material_sections()` (lê os metadados dos chunks direto do Chroma) pra listar as seções que nunca apareceram numa resposta. Sem autenticação — `app.py` não é deployado pros alunos.
+
+**Puxar o arquivo.** Documentado em `DEPLOY.md` (seção "Class metrics"): `railway volume files download /metrics.db ./data/chats/metrics.db --overwrite` (sintaxe confirmada contra o CLI 5.43.1 — o path é relativo à raiz do volume, que é o mount point), ou `docker cp` no caso Docker puro.
+
+**Refactor de tabela.** `rag/knowledge_base.py`: a leitura de metadados do Chroma que estava dentro de `describe_course_materials` virou `_kb_chunk_metadatas()`, reusada por `describe_course_materials` e pelo novo `list_material_sections`.
+
+### ⚠️ Limitações/trade-offs desta rodada
+- **`StudentProfile` é inerte hoje.** Está definido em `agent/state.py` e passa pelo `TutorState`, mas nenhum nó do grafo o atualiza — a coluna `studentProfile` vai ser sempre `"neutral"`. Gravada mesmo assim (barata, à prova de futuro), mas não espere sinal aí até o grafo populá-la.
+- Sem correlação entre turnos: nenhuma visão de "trajetória" de aluno ou de sessão. Foi a troca aceita.
+- `citations` registra toda a evidência que passou pelo grading do turno, não só o que efetivamente foi citado no texto final — é uma leve superestimativa de "o que a turma consultou", ok pra análise de cobertura.
+- Retenção: pra um piloto de um semestre, deixar crescer sem limite deve bastar. Revisar se virar multi-semestre.
+- `pandas` foi fixado explicitamente em `requirements.txt` (só usado pelo `app.py` local; já vinha como dependência transitiva do Streamlit, mas o freeze não capturava). `use_container_width` (depreciado) trocado por `width="stretch"` no `app.py`.
+
+### 🔜 Próximos Passos (revisão)
+- Fazer algum nó do grafo de fato popular o `StudentProfile` (ou remover o campo se não for pra usar).
+- Mecanismo de avaliação da qualidade pedagógica da resposta (ainda pendente desde 08-17).
+- Atualizar `main.py` para o padrão multi-KB (ainda pendente desde 08-17).
+- Paralelizar/batchar grading e extração de evidência (ainda pendente desde 08-17).
+- Depois de um uso real em produção: baixar o `metrics.db` via `railway volume files download`, abrir no `app.py` e confirmar que os agregados batem com o que rolou no chat.

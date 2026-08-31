@@ -94,3 +94,50 @@ There's no live "add a PDF" flow in the container. To update the
 material: re-run step 1 to rebuild the knowledge base (or add PDFs and
 recreate it), rebuild the image, and redeploy. Existing chat history in
 the volume is untouched by this since it's stored separately.
+
+## Class metrics (on demand)
+
+The student app records one anonymous row per conversation turn — topic,
+comprehension/progress estimate, frustration, pedagogical strategy,
+which parts of the material were used — into `metrics.db`, next to
+`chainlit.db` on the mounted volume (`/app/data/chats/`). No enrollment
+id, no thread id: rows are independent events, so you can see "the class
+is stuck on topic X" but not follow an individual student.
+
+The file is created on first boot and lives on the volume, so it survives
+redeploys and restarts. It is **not** in the container image — only the
+code that writes it is. Pull the file whenever you want to look, then
+open it in the local app.
+
+**Railway.** `railway volume files` copies over SSH, so once per machine
+you need a key registered with Railway:
+
+```
+railway ssh keys add            # walks you through generating/registering a key
+```
+
+Then, from the linked project directory (the volume is mounted *at*
+`/app/data/chats`, so inside the volume the file sits at the root):
+
+```
+railway volume files --volume langchain-rag-volume list /
+railway volume files --volume langchain-rag-volume download /metrics.db ./data/chats/metrics.db --overwrite
+```
+
+No SSH key set up? The Railway dashboard also has a volume file browser
+(service → **Volume**) you can download `metrics.db` from directly.
+
+**Plain Docker:**
+
+```
+docker cp tutor-<course-slug>:/app/data/chats/metrics.db ./data/chats/metrics.db
+```
+
+Then:
+
+```
+streamlit run app.py
+```
+
+and open the **📊 Métricas da turma** tab (it defaults to
+`data/chats/metrics.db`, or upload the file you just downloaded).

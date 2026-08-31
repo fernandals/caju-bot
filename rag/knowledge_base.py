@@ -274,82 +274,116 @@ def resolve_source_pdf(discipline_name: str, file_name: str) -> Path | None:
 
 
 # ==========================================================
-# Describe (student-facing overview)
+# Describe (overviews from the persisted chunk metadata)
 # ==========================================================
+
+def _kb_chunk_metadatas(discipline_name: str) -> list[dict]:
+    """
+    Every chunk's metadata dict from a course's persisted vector store -
+    no embeddings or model calls. Shared by the overview helpers below.
+    """
+    import chromadb
+
+    kb_dir = knowledge_base_dir(discipline_name)
+
+    if kb_dir is None:
+        return []
+
+    client = chromadb.PersistentClient(path=str(kb_dir / "chroma"))
+    collections = client.list_collections()
+
+    if not collections:
+        return []
+
+    records = client.get_collection(collections[0].name).get(
+        include=["metadatas"]
+    )
+
+    return records.get("metadatas") or []
+
 
 def describe_course_materials(discipline_name: str) -> list[dict]:
     """
     Best-effort list of the source materials indexed for a course, read
-    straight from the persisted vector store's chunk metadata - no
-    embeddings or model calls, nothing hardcoded about the course.
+    straight from the persisted vector store's chunk metadata - nothing
+    hardcoded about the course.
 
     Returns one entry per source file: {"file", "chapter", "title"},
     sorted by chapter. "chapter"/"title" are None when the ingestion
     didn't detect them. Used to populate the student-facing readme.
     """
-    import chromadb
+    by_file: dict[str, dict] = {}
 
-    base_path = Path("data/knowledge_bases")
+    for meta in _kb_chunk_metadatas(discipline_name):
 
-    for kb_dir in base_path.iterdir():
+        file_path = meta.get("file_path")
 
-        metadata_path = kb_dir / "metadata.json"
-
-        if not metadata_path.exists():
+        if not file_path:
             continue
 
-        with open(metadata_path, encoding="utf-8") as f:
-            if json.load(f).get("name") != discipline_name:
-                continue
-
-        client = chromadb.PersistentClient(path=str(kb_dir / "chroma"))
-        collections = client.list_collections()
-
-        if not collections:
-            return []
-
-        records = client.get_collection(collections[0].name).get(
-            include=["metadatas"]
+        entry = by_file.setdefault(
+            file_path,
+            {"file": file_path, "chapter": None, "_titles": set()},
         )
 
-        by_file: dict[str, dict] = {}
+        chapter = meta.get("chapter_number")
 
-        for meta in records.get("metadatas") or []:
+        if chapter is not None:
+            try:
+                entry["chapter"] = int(chapter)
+            except (TypeError, ValueError):
+                pass
 
-            file_path = meta.get("file_path")
+        title = (meta.get("chapter_title") or "").strip()
 
-            if not file_path:
-                continue
+        if title:
+            entry["_titles"].add(title)
 
-            entry = by_file.setdefault(
-                file_path,
-                {"file": file_path, "chapter": None, "_titles": set()},
-            )
+    materials = []
 
-            chapter = meta.get("chapter_number")
+    for entry in by_file.values():
+        titles = entry.pop("_titles")
+        entry["title"] = titles.pop() if len(titles) == 1 else None
+        materials.append(entry)
 
-            if chapter is not None:
-                try:
-                    entry["chapter"] = int(chapter)
-                except (TypeError, ValueError):
-                    pass
+    materials.sort(
+        key=lambda m: (m["chapter"] is None, m["chapter"] or 0, m["file"])
+    )
 
-            title = (meta.get("chapter_title") or "").strip()
+    return materials
 
-            if title:
-                entry["_titles"].add(title)
 
-        materials = []
+def list_material_sections(discipline_name: str) -> list[dict]:
+    """
+    Every distinct (file, section) present in the KB, so the metrics
+    panel can spot which parts of the material student questions never
+    reach. Returns {"file", "section_id", "section_title", "chunks"}.
+    """
+    by_section: dict[tuple, dict] = {}
 
-        for entry in by_file.values():
-            titles = entry.pop("_titles")
-            entry["title"] = titles.pop() if len(titles) == 1 else None
-            materials.append(entry)
+    for meta in _kb_chunk_metadatas(discipline_name):
 
-        materials.sort(
-            key=lambda m: (m["chapter"] is None, m["chapter"] or 0, m["file"])
+        file_path = meta.get("file_path")
+
+        if not file_path:
+            continue
+
+        section_id = meta.get("section_id")
+        section_title = meta.get("section_title")
+        key = (file_path, section_id, section_title)
+
+        entry = by_section.setdefault(
+            key,
+            {
+                "file": file_path,
+                "section_id": section_id,
+                "section_title": section_title,
+                "chunks": 0,
+            },
         )
+        entry["chunks"] += 1
 
-        return materials
-
-    return []
+    return sorted(
+        by_section.values(),
+        key=lambda s: (s["file"], str(s["section_id"] or ""), s["section_title"] or ""),
+    )

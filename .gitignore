@@ -9,6 +9,10 @@ data/
 *.out
 .mypy_cache/
 
+# Chainlit's local blob cache for message elements (attached PDFs, etc.) -
+# runtime-only, recreated on demand.
+.files/
+
 # Generated per container at startup from the baked-in course (see
 # chainlit_app.py). chainlit.md is the tracked static fallback.
 chainlit_pt-BR.md

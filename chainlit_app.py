@@ -18,6 +18,7 @@ from rag.knowledge_base import (
 )
 from utils.citations import highlight_citations
 from utils.helpers import is_enrolled, load_roster
+from utils.metrics import ensure_metrics_schema, record_turn
 
 load_dotenv()
 
@@ -221,6 +222,10 @@ def _ensure_sqlite_schema():
 
 _ensure_sqlite_schema()
 
+# Anonymous per-turn pedagogical metrics - own SQLite file on the same
+# volume, written from on_message (see utils/metrics.py).
+ensure_metrics_schema()
+
 
 @cl.data_layer
 def get_data_layer():
@@ -367,6 +372,10 @@ async def on_message(message: cl.Message):
         final_state = await asyncio.to_thread(_run_graph_sync, graph, state)
 
     cl.user_session.set("state", final_state)
+
+    # Anonymous metrics: synchronous SQLite write, kept off the shared
+    # event loop like _run_graph_sync. Never raises (see record_turn).
+    await asyncio.to_thread(record_turn, final_state, DISCIPLINE)
 
     answer = final_state["messages"][-1].content
     answer, elements = _linkify_citations(final_state, answer)

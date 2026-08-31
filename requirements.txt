@@ -106,6 +106,7 @@ opentelemetry-util-http==0.65b0
 orjson==3.11.3
 ormsgpack==1.11.0
 packaging==26.3
+pandas==3.0.1
 propcache==0.5.2
 protobuf==7.36.0
 pycparser==3.0
