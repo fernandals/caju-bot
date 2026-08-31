@@ -11,7 +11,11 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.chat_pipeline import load_pipeline
 from agent.state import StudentProfile, TutorState
-from rag.knowledge_base import list_knowledge_bases
+from rag.knowledge_base import (
+    describe_course_materials,
+    list_knowledge_bases,
+    resolve_source_pdf,
+)
 from utils.citations import highlight_citations
 from utils.helpers import is_enrolled, load_roster
 
@@ -33,6 +37,65 @@ if len(kbs) != 1:
 DISCIPLINE = kbs[0]["name"]
 
 ROSTER = load_roster(Path(os.getenv("ROSTER_PATH", "data/roster.txt")))
+
+
+# ---------------- "LEIA-ME" PAGE ----------------
+# The welcome/readme page is generated per container from the baked-in
+# knowledge base (course name + the materials it indexed) so it always
+# matches the course actually shipped, with nothing hardcoded. Chainlit
+# re-reads this file on every /project/settings request; the app language
+# is pinned to pt-BR (.chainlit/config.toml), so it looks for
+# chainlit_pt-BR.md and falls back to the static chainlit.md if writing
+# the generated file fails for any reason.
+def _render_readme() -> str:
+    lines = [
+        f"# Tutor Virtual — {DISCIPLINE}",
+        "",
+        f"Este assistente ajuda você a estudar **{DISCIPLINE}**. Ele responde "
+        "às suas perguntas **com base no material da disciplina** "
+        "disponibilizado pelo professor — não busca informações fora desse "
+        "conteúdo.",
+        "",
+        "Sempre que possível, o tutor indica o capítulo e a seção do material "
+        "em que se baseou, para você conferir na fonte.",
+    ]
+
+    try:
+        materials = describe_course_materials(DISCIPLINE)
+    except Exception:
+        materials = []
+
+    if materials:
+        lines += ["", "## Material coberto", ""]
+        for m in materials:
+            if m["chapter"] is not None and m["title"]:
+                lines.append(f"- **Capítulo {m['chapter']}** — {m['title']}")
+            elif m["chapter"] is not None:
+                lines.append(f"- **Capítulo {m['chapter']}** ({m['file']})")
+            else:
+                lines.append(f"- {m['file']}")
+
+    lines += [
+        "",
+        "## Como usar",
+        "",
+        "- Pergunte sobre conceitos, definições e exemplos vistos na disciplina.",
+        "- Peça explicações passo a passo, comparações ou mais exemplos.",
+        "- Use **Novo chat** para recomeçar do zero; as conversas anteriores "
+        "continuam salvas na barra lateral.",
+        "",
+        "O tutor é um apoio ao estudo e pode cometer erros — confirme sempre as "
+        "informações importantes no material e nas aulas.",
+        "",
+    ]
+
+    return "\n".join(lines)
+
+
+try:
+    Path("chainlit_pt-BR.md").write_text(_render_readme(), encoding="utf-8")
+except OSError:
+    pass
 
 
 @functools.lru_cache(maxsize=1)
@@ -227,6 +290,72 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
     )
 
 
+def _short_ref_label(metadata: dict) -> str:
+    """Compact chip label for a citation, e.g. '📄 SAIA-Chapter13.pdf, p. 2'."""
+    file_name = metadata.get("file_path") or "material"
+    start = metadata.get("page_start")
+    end = metadata.get("page_end")
+
+    if start and end and end != start:
+        return f"📄 {file_name}, pp. {start}–{end}"
+    if start:
+        return f"📄 {file_name}, p. {start}"
+    return f"📄 {file_name}"
+
+
+def _linkify_citations(final_state, answer: str):
+    """
+    Replace each full citation string in the answer with a short label
+    and return (rewritten_answer, elements).
+
+    Chainlit turns any element whose `name` occurs in the message text
+    into a clickable chip that opens the element, so each label names a
+    side `cl.Pdf` that opens the source PDF at the cited page. The
+    deterministic citation strings substitute_citation_markers() dropped
+    into `answer` are what we match and swap out; citations whose source
+    PDF wasn't saved with the KB keep their full text (highlight_citations
+    still badges those).
+    """
+    docs = final_state.get("retrieved_docs", []) or []
+    evidence = final_state.get("evidence", []) or []
+
+    elements: list[cl.Pdf] = []
+    label_by_target: dict[tuple, str] = {}
+
+    for doc, ev in zip(docs, evidence):
+        citation = getattr(ev, "citation", "")
+
+        if not citation or citation not in answer:
+            continue
+
+        metadata = getattr(doc, "metadata", {}) or {}
+        file_name = metadata.get("file_path", "")
+        pdf_path = resolve_source_pdf(DISCIPLINE, file_name)
+
+        if pdf_path is None:
+            continue
+
+        page_start = metadata.get("page_start")
+        target = (file_name, page_start)
+
+        label = label_by_target.get(target)
+        if label is None:
+            label = _short_ref_label(metadata)
+            label_by_target[target] = label
+            elements.append(
+                cl.Pdf(
+                    name=label,
+                    path=str(pdf_path),
+                    display="side",
+                    page=page_start,
+                )
+            )
+
+        answer = answer.replace(citation, label)
+
+    return answer, elements
+
+
 @cl.on_message
 async def on_message(message: cl.Message):
     graph = cl.user_session.get("graph")
@@ -240,4 +369,9 @@ async def on_message(message: cl.Message):
     cl.user_session.set("state", final_state)
 
     answer = final_state["messages"][-1].content
-    await cl.Message(content=highlight_citations(answer)).send()
+    answer, elements = _linkify_citations(final_state, answer)
+
+    await cl.Message(
+        content=highlight_citations(answer),
+        elements=elements,
+    ).send()

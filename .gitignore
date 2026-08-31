@@ -9,6 +9,10 @@ data/
 *.out
 .mypy_cache/
 
+# Generated per container at startup from the baked-in course (see
+# chainlit_app.py). chainlit.md is the tracked static fallback.
+chainlit_pt-BR.md
+
 # Chainlit re-scaffolds every non-existent language file from its own
 # defaults on every `chainlit run` - only our pt-BR override is real.
 .chainlit/translations/*.json

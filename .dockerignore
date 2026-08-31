@@ -13,6 +13,7 @@ __pycache__/
 # volume instead (see Dockerfile/DEPLOY.md).
 data/chats/
 
-# Raw course PDFs aren't needed at runtime, only the pre-built KB under
-# data/knowledge_bases/ is.
+# The pdfs/ working folder isn't needed at runtime: KB creation copies a
+# course's source PDFs into data/knowledge_bases/<id>/sources/, which ship
+# with the KB (the student app links each citation to its source page).
 pdfs/

@@ -33,6 +33,7 @@ COPY rag/ rag/
 COPY utils/ utils/
 COPY .streamlit/ .streamlit/
 COPY .chainlit/ .chainlit/
+COPY public/ public/
 COPY app.py chainlit_app.py main.py chainlit.md ./
 
 # This course's pre-built knowledge base and roster, prepared beforehand

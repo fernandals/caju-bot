@@ -1,0 +1,15 @@
+/* Citation chips.
+ *
+ * Chainlit renders element reference links (.element-link) as tiny,
+ * uppercase pills. Our citations are long, case-sensitive strings like
+ * "[SAIA-Chapter13.pdf, Chapter 13, Section 13.1 - Conceptual Overview,
+ * Pages 2-3]", so the default styling is unreadable. Render them as a
+ * calmer inline reference badge that can wrap across lines and opens the
+ * source PDF on click. */
+.element-link {
+  text-transform: none;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: normal;
+  padding: 0.08rem 0.4rem;
+}

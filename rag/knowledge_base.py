@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -114,6 +115,16 @@ def create_and_save_knowledge_base(
             ensure_ascii=False,
         )
 
+    # Keep the original PDFs next to the index so the student app can link
+    # each citation straight to its source page. The whole
+    # data/knowledge_bases/<id>/ tree (this included) is baked into the
+    # course image, so nothing else needs to ship the files.
+    sources_dir = base_path / "sources"
+    sources_dir.mkdir(exist_ok=True)
+
+    for pdf in folder_path.glob("**/*.pdf"):
+        shutil.copy2(pdf, sources_dir / pdf.name)
+
     print(f"Knowledge base saved to {persist_dir}")
 
     return KnowledgeBase(
@@ -219,3 +230,126 @@ def list_knowledge_bases():
                 )
 
     return knowledge_bases
+
+
+# ==========================================================
+# Locate
+# ==========================================================
+
+def knowledge_base_dir(discipline_name: str) -> Path | None:
+    """Path to the KB folder for a discipline, or None if not found."""
+    base_path = Path("data/knowledge_bases")
+
+    if not base_path.is_dir():
+        return None
+
+    for kb_dir in base_path.iterdir():
+
+        metadata_path = kb_dir / "metadata.json"
+
+        if not metadata_path.exists():
+            continue
+
+        with open(metadata_path, encoding="utf-8") as f:
+            if json.load(f).get("name") == discipline_name:
+                return kb_dir
+
+    return None
+
+
+def resolve_source_pdf(discipline_name: str, file_name: str) -> Path | None:
+    """
+    Absolute path to a citation's source PDF, if it was saved alongside
+    the KB (see create_and_save_knowledge_base). Returns None for KBs
+    built before sources were persisted.
+    """
+    kb_dir = knowledge_base_dir(discipline_name)
+
+    if kb_dir is None:
+        return None
+
+    candidate = kb_dir / "sources" / Path(file_name).name
+
+    return candidate if candidate.is_file() else None
+
+
+# ==========================================================
+# Describe (student-facing overview)
+# ==========================================================
+
+def describe_course_materials(discipline_name: str) -> list[dict]:
+    """
+    Best-effort list of the source materials indexed for a course, read
+    straight from the persisted vector store's chunk metadata - no
+    embeddings or model calls, nothing hardcoded about the course.
+
+    Returns one entry per source file: {"file", "chapter", "title"},
+    sorted by chapter. "chapter"/"title" are None when the ingestion
+    didn't detect them. Used to populate the student-facing readme.
+    """
+    import chromadb
+
+    base_path = Path("data/knowledge_bases")
+
+    for kb_dir in base_path.iterdir():
+
+        metadata_path = kb_dir / "metadata.json"
+
+        if not metadata_path.exists():
+            continue
+
+        with open(metadata_path, encoding="utf-8") as f:
+            if json.load(f).get("name") != discipline_name:
+                continue
+
+        client = chromadb.PersistentClient(path=str(kb_dir / "chroma"))
+        collections = client.list_collections()
+
+        if not collections:
+            return []
+
+        records = client.get_collection(collections[0].name).get(
+            include=["metadatas"]
+        )
+
+        by_file: dict[str, dict] = {}
+
+        for meta in records.get("metadatas") or []:
+
+            file_path = meta.get("file_path")
+
+            if not file_path:
+                continue
+
+            entry = by_file.setdefault(
+                file_path,
+                {"file": file_path, "chapter": None, "_titles": set()},
+            )
+
+            chapter = meta.get("chapter_number")
+
+            if chapter is not None:
+                try:
+                    entry["chapter"] = int(chapter)
+                except (TypeError, ValueError):
+                    pass
+
+            title = (meta.get("chapter_title") or "").strip()
+
+            if title:
+                entry["_titles"].add(title)
+
+        materials = []
+
+        for entry in by_file.values():
+            titles = entry.pop("_titles")
+            entry["title"] = titles.pop() if len(titles) == 1 else None
+            materials.append(entry)
+
+        materials.sort(
+            key=lambda m: (m["chapter"] is None, m["chapter"] or 0, m["file"])
+        )
+
+        return materials
+
+    return []
