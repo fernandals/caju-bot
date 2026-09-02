@@ -39,13 +39,67 @@ def parse_document(
 # ==== PDFs ====
 
 SECTION_REGEX = re.compile(
-    # [ \t]{2,} (not \s{2,}) is deliberate: \s also matches newlines, which
-    # let a bare page-number footer line bleed into the next line's
-    # capitalized text and register as a false section/chapter heading
-    # (e.g. a footer "2" immediately followed by "Note that..." on the next
-    # line was being read as section "2  Note that...").
-    r"(?m)^(\d+(?:\.\d+)*)[ \t]{2,}([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9\-,:() ]{3,60})"
+    # Two accepted heading shapes, each on a line of its own:
+    #   "13.1<2+ spaces>Title"     - title may be followed by more text
+    #   "13.1<1 space>Title<EOL>"  - one space only if the title fills the
+    #                                whole line (nothing after it)
+    #
+    # [ \t] (never \s) throughout is deliberate: \s also matches newlines,
+    # which let a bare page-number footer line bleed into the next line's
+    # capitalized text and register as a false heading (a footer "2"
+    # immediately followed by "Note that..." was read as section "2  Note
+    # that..."). Anchoring the single-space form to end-of-line closes the
+    # same hole for one-space headings.
+    r"(?m)^(\d+(?:\.\d+)*)"
+    r"(?:"
+    r"[ \t]{2,}([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9\-,:() ]{3,60})"
+    r"|"
+    r"[ \t]([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ0-9\-,:() ]{3,60})[ \t]*$"
+    r")"
 )
+
+
+def heading_title(match: re.Match) -> str:
+    """Title from whichever SECTION_REGEX branch matched (2-space or 1-space)."""
+    return (match.group(2) or match.group(3) or "").strip()
+
+
+def drop_toc_duplicates(
+    matches: list[re.Match],
+    content: str,
+) -> list[re.Match]:
+    """
+    A table of contents lists the same numbered headings as the body, a
+    few pages earlier and with almost nothing between them. When a section
+    number shows up more than once, drop the near-empty occurrences and
+    keep the one with real text under it, preserving document order.
+    """
+    if len(matches) < 2:
+        return matches
+
+    body_len = [
+        (matches[i + 1].start() if i + 1 < len(matches) else len(content))
+        - matches[i].start()
+        for i in range(len(matches))
+    ]
+
+    by_id: dict[str, list[int]] = {}
+
+    for i, match in enumerate(matches):
+        by_id.setdefault(match.group(1), []).append(i)
+
+    drop: set[int] = set()
+
+    for indexes in by_id.values():
+        if len(indexes) < 2:
+            continue
+
+        keep = max(indexes, key=lambda i: body_len[i])
+        drop.update(
+            i for i in indexes if i != keep and body_len[i] < 150
+        )
+
+    return [m for i, m in enumerate(matches) if i not in drop]
 
 def parse_pdf(
     doc: RawDocument,
@@ -65,7 +119,10 @@ def extract_document_title(
     doc: RawDocument,
 ) -> str | None:
     """
-    Very simple heuristic.
+    Very simple heuristic: the first line on page 1 that reads like a
+    title rather than a bare page number, date, or rule line. This string
+    ends up in every chunk header for the document, so a junk first line
+    would otherwise pollute all of its embeddings.
     """
 
     if not doc.pages:
@@ -80,7 +137,22 @@ def extract_document_title(
     if not lines:
         return None
 
+    for line in lines[:10]:
+        if _looks_like_title(line):
+            return line
+
     return lines[0]
+
+
+def _looks_like_title(line: str) -> bool:
+    if not 4 <= len(line) <= 200:
+        return False
+
+    letters = sum(char.isalpha() for char in line)
+
+    # Enough real letters to be words - not "2", "p. 5", "2024-01-01", "———".
+    return letters >= max(3, len(line) // 2)
+
 
 def extract_sections(
     doc: RawDocument,
@@ -88,7 +160,10 @@ def extract_sections(
 
     content = doc.content
 
-    matches = list(SECTION_REGEX.finditer(content))
+    matches = drop_toc_duplicates(
+        list(SECTION_REGEX.finditer(content)),
+        content,
+    )
 
     if not matches:
         sections = [
@@ -157,7 +232,7 @@ def extract_sections(
         sections.append(
             Section(
                 id=match.group(1),
-                title=match.group(2).strip(),
+                title=heading_title(match),
                 level=level,
                 page_start=page_start,
                 page_end=page_end,
