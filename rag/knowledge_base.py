@@ -51,7 +51,27 @@ def create_and_save_knowledge_base(
     )
 
     print("[LOAD] Loading documents...")
-    raw_documents = load_documents(folder_path)
+    raw_documents, failed_files = load_documents(folder_path)
+
+    if failed_files:
+        print(
+            "[LOAD] WARNING: could not read "
+            + ", ".join(
+                f"{f['file']} ({f['error']})" for f in failed_files
+            )
+        )
+
+    if not raw_documents:
+        raise ValueError(
+            f"No readable PDF found under {folder_path}"
+            + (
+                ": " + "; ".join(
+                    f"{f['file']}: {f['error']}" for f in failed_files
+                )
+                if failed_files
+                else ""
+            )
+        )
 
     low_text_files = detect_low_text_files(raw_documents)
 
@@ -100,6 +120,7 @@ def create_and_save_knowledge_base(
         "chunk_size": 1000,
         "chunk_overlap": 100,
         "low_text_files": low_text_files,
+        "failed_files": failed_files,
     }
 
     with open(
@@ -142,6 +163,7 @@ def create_and_save_knowledge_base(
             "sections": metadata["sections"],
             "chunks": metadata["chunks"],
             "low_text_files": low_text_files,
+            "failed_files": failed_files,
         },
     )
 
@@ -155,6 +177,11 @@ def load_knowledge_base(
 ):
 
     base_path = Path("data/knowledge_bases")
+
+    if not base_path.is_dir():
+        raise ValueError(
+            f"No knowledge base found for discipline {discipline_name!r}"
+        )
 
     for kb_dir in base_path.iterdir():
 
@@ -211,6 +238,9 @@ def load_knowledge_base(
 def list_knowledge_bases():
 
     base_dir = Path("data/knowledge_bases")
+
+    if not base_dir.is_dir():
+        return []
 
     knowledge_bases = []
 

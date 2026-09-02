@@ -71,7 +71,10 @@ def main() -> None:
         if not student_ids:
             sys.exit(f"Error: no enrollment IDs found in '{args.roster}'.")
 
-    create_and_save_knowledge_base(args.pdf_folder, args.discipline)
+    try:
+        create_and_save_knowledge_base(args.pdf_folder, args.discipline)
+    except ValueError as exc:
+        sys.exit(f"Error building knowledge base: {exc}")
 
     if student_ids is not None:
         write_roster(student_ids, ROSTER_PATH, header=args.discipline)

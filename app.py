@@ -96,7 +96,11 @@ with tab_create:
                     f.write(file.read())
 
             with st.spinner("Criando base de conhecimento..."):
-                kb = create_and_save_knowledge_base(tmp_path, discipline_name)  # type: ignore
+                try:
+                    kb = create_and_save_knowledge_base(tmp_path, discipline_name)  # type: ignore
+                except Exception as exc:  # noqa: BLE001 - surface build errors to the user
+                    st.error(f"Não consegui criar a base de conhecimento: {exc}")
+                    st.stop()
 
         write_roster(student_ids, ROSTER_PATH, header=discipline_name)
 
@@ -129,6 +133,14 @@ with tab_create:
                     f"e provavelmente são PDFs escaneados ou baseados em imagem: "
                     f"{files}. O tutor não conseguirá responder perguntas sobre "
                     f"o conteúdo desses arquivos."
+                )
+
+            if kb.stats.get("failed_files"):
+                files = ", ".join(f["file"] for f in kb.stats["failed_files"])
+                st.warning(
+                    f"Não consegui ler os seguintes arquivos, que ficaram de "
+                    f"fora da base: {files}. Podem estar protegidos por senha, "
+                    f"corrompidos ou vazios."
                 )
 
 

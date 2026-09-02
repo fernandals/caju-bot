@@ -20,15 +20,26 @@ CHAPTER_FILENAME_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-def detect_pdf_type(page: fitz.Page) -> DocumentType:
-  width = page.mediabox_size[0]
-  height = page.mediabox_size[1]
+def _page_is_landscape(page: fitz.Page) -> bool:
+  width, height = page.mediabox_size
 
-  return (
-    DocumentType.SLIDES
-    if width / height > 1.1
-    else DocumentType.PDF
-  )
+  return height > 0 and width / height > 1.1
+
+def detect_pdf_type(pdf: fitz.Document, sample_pages: int = 5) -> DocumentType:
+  """
+  Classifies a PDF as SLIDES or PDF by page aspect ratio, voting over the
+  first `sample_pages` pages instead of trusting page 1 alone: a portrait
+  cover in front of landscape slides (or a scanned landscape textbook)
+  would otherwise be misfiled, and that choice picks which parser runs.
+  """
+  n = min(sample_pages, pdf.page_count)
+
+  if n == 0:
+    return DocumentType.UNKNOWN
+
+  landscape = sum(_page_is_landscape(pdf[i]) for i in range(n))
+
+  return DocumentType.SLIDES if landscape * 2 > n else DocumentType.PDF
 
 def extract_slide_structure(text: str) -> tuple[str, str]:
   lines = [l.strip() for l in text.splitlines() if l.strip()]
