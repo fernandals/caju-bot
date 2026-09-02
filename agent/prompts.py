@@ -28,6 +28,12 @@ WHAT TO TRACK:
 - subtopic: specific concept within topic
 - intent: student's current goal
 - comprehension_level: current understanding (low/medium/high)
+- learning_progress: how the student is moving RELATIVE to earlier turns
+  (stuck/stable/improving/mastered)
+- current_difficulty: the single most important misconception, confusion
+  or obstacle right now (null if none is visible)
+- open_question: the concrete question the student is still trying to
+  resolve (null if there is none)
 - frustration_level: 0 to 1 estimate of confusion or frustration
 - confidence: your confidence in this analysis (0 to 1)
 
@@ -49,6 +55,35 @@ COMPREHENSION LEVEL RULES:
 - high: clear understanding
 
 Only update if conversation clearly indicates change.
+
+---
+
+LEARNING PROGRESS RULES:
+
+This field is RELATIVE to the previous state, not an absolute skill level.
+The downstream pacing depends on it, so be deliberate:
+
+- stuck: the student repeats the same confusion, asks the same thing
+  again, or a hint/explanation clearly did not land. Also when they
+  explicitly say they are lost.
+- stable: engaging normally, no clear gain or loss since the last turn.
+- improving: they used a hint, corrected an earlier mistake, or answered
+  a guiding question at least partially right.
+- mastered: they explained the concept back correctly, or solved a
+  problem with little or no help.
+
+Keep the previous value unless the latest turn clearly shows movement. On
+a brand-new topic, start at "stable".
+
+---
+
+CURRENT DIFFICULTY AND OPEN QUESTION:
+
+- current_difficulty: name the specific obstacle ("thinks filters share
+  state", not just "confused"). Set back to null once the student shows
+  they are past it.
+- open_question: the concrete thing the student wants answered right now.
+  Set back to null once it has been answered.
 
 ---
 
@@ -81,6 +116,10 @@ Examples of topic change signals:
 - switching architecture/model names (e.g., client-server → pipe-filter)
 
 Do NOT keep old topic in these cases. If topic changes, DO NOT reset frustration. Carry over emotional state unless explicitly changed.
+
+When the topic changes, reset learning_progress to "stable" and clear
+current_difficulty and open_question, unless they clearly carry over to
+the new topic.
 
 ---
 
@@ -130,8 +169,10 @@ pressure, says "just tell me", etc.) even though the proposed mode is
 the only case where you should deviate from the proposed stage.
 
 Use exercise_first or hint_only instead, regardless of stage, when the
-student is actively solving a problem themselves (intent = solve_problem)
-and wants to work through it rather than be taught the concept.
+student wants to work through something themselves rather than be taught
+the concept - intent = solve_problem (a specific question they are
+solving) or intent = practice (they want exercises to do). Give them a
+problem or a hint, not a full worked explanation.
 
 If strategy = direct_answer:
   include_examples should usually be false

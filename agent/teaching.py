@@ -1,7 +1,13 @@
 from agent.state import LearningState, TeachingState
 
 FRUSTRATION_ESCAPE_THRESHOLD = 0.6
-DIRECT_INTENTS = {"exam_prep", "practice"}
+
+# Intents that skip the guided arc and go straight to a full explanation.
+# Only exam_prep: the student is cramming against a deadline, so Socratic
+# pacing works against them. "practice" and "solve_problem" are NOT here -
+# those students want to do the work themselves, so they stay guided and
+# the planning node picks an exercise_first / hint_only strategy.
+DIRECT_INTENTS = {"exam_prep"}
 
 
 def advance_teaching_state(
