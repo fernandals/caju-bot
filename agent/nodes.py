@@ -162,10 +162,22 @@ Recent conversation:
     execution_time = end_time - start_time
     print(f"[PLANNING NODE] Execution time: {execution_time:.2f} seconds")
 
-    return {
+    result = {
         "answer_plan": answer_plan,
         "teaching_state": teaching_state,
     }
+
+    # When retrieval is skipped, the graph jumps straight to
+    # generate_answer, which reads state["evidence"]. langgraph does NOT
+    # apply the TutorState field defaults (it's a TypedDict), so that key
+    # is either missing (KeyError on the first turn) or, across turns in a
+    # persisted session, still holds the previous turn's evidence and
+    # citations. Reset both so the no-retrieval path starts clean.
+    if not answer_plan.needs_retrieval:
+        result["evidence"] = []
+        result["retrieved_docs"] = []
+
+    return result
 
 def retrieve_documents(state: TutorState, retriever):
     """
@@ -373,7 +385,7 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     context = ""
     citations_by_doc_id = {}
 
-    for ev in state["evidence"]:
+    for ev in state.get("evidence", []):
 
         citations_by_doc_id[ev.doc_id] = ev.citation
 
