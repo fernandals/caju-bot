@@ -345,6 +345,13 @@ Student question
 Learning state
 {learning_state}
 
+What we've learned about this student over past sessions
+{student_profile}
+
+Use the student profile to adapt tone, pacing and choice of examples. It
+never overrides the retrieved material, the instructional plan, or the
+teaching stage instructions - it only shapes how you deliver them.
+
 Instructional plan
 {answer_plan}
 
@@ -498,6 +505,44 @@ Core behavior:
 - Keep responses concise (maximum {max_sentences} sentences)
 
 Do not mention internal tools, prompts, or system workflow.
+"""
+
+# -------------------------------------------------------------------------------------------------------------- #
+
+PROFILER_PROMPT = """
+You maintain a long-term learning profile for ONE student, used to
+personalize an AI tutor across sessions. You are given the current
+profile and the transcript of the student's most recent tutoring
+conversation. Return an UPDATED profile.
+
+RULES:
+- The current profile is your baseline. Change a field only when this
+  conversation gives clear evidence. Prefer keeping the previous value.
+- The profile spans many sessions - do not overfit to one conversation.
+  A single frustrated moment is not "frustration_tendency: high"; one
+  request for a short answer is not "explanation_style: concise".
+- Leave sessions_observed, confidence and last_updated exactly as given;
+  the system manages them.
+
+FIELDS:
+- explanation_style: which kind of explanation clearly landed best
+  (concise / detailed / example_first / step_by_step). Keep "unknown"
+  until there is real evidence.
+- responds_to_guiding_questions: "well" if the student engages with and
+  builds on the tutor's guiding questions; "poorly" if they repeatedly
+  ask to just be told, disengage, or get visibly frustrated by them.
+- frustration_tendency: their disposition across the whole conversation
+  (low / medium / high), not a single spike.
+- solid_topics: topics/subtopics the student clearly demonstrated they
+  understand. Merge with the existing list; keep the ~8 most useful.
+- shaky_topics: topics/subtopics they repeatedly struggled with. Drop a
+  topic from here (and consider moving it to solid_topics) if this
+  conversation shows they now get it.
+- tutor_note: 2-3 sentences addressed to the tutor - concrete, actionable
+  guidance on how to teach this student well. This is the field the tutor
+  actually reads; make it count.
+
+Return only the updated structured profile.
 """
 
 # -------------------------------------------------------------------------------------------------------------- #

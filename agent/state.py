@@ -6,36 +6,84 @@ from pydantic import BaseModel, Field
 
 
 class StudentProfile(BaseModel):
-    asks_exercise: int = Field(
-        default=0,
-        description="Number of times the student requested exercises or practice activities."
-    )
+    """
+    Slow-moving, cross-session picture of how one student learns. Loaded
+    at the start of a conversation and NOT modified during it - refreshed
+    once per session by the profiler (agent/profiler.py) over the
+    student's previous conversation. Persisted per matrícula in
+    utils/student_profile.py.
+    """
 
-    asks_detail: int = Field(
-        default=0,
-        description="Number of times the student requested detailed explanations."
-    )
-
-    asks_objectivity: int = Field(
-        default=0,
-        description="Number of times the student preferred concise or objective explanations."
-    )
-
-    current_profile: str = Field(
-        default="neutral",
+    explanation_style: Literal[
+        "concise", "detailed", "example_first", "step_by_step", "unknown"
+    ] = Field(
+        default="unknown",
         description=(
-            "Current inferred student interaction profile. "
-            "Possible behaviors include: "
-            "'analytical' (logical and reasoning-oriented), "
-            "'explorer' (curious and analogy-driven), "
-            "'objective' (prefers concise answers), "
-            "'neutral' (no strong preference detected)."
-        )
+            "How this student best receives an explanation. "
+            "'concise' = wants the short answer; "
+            "'detailed' = wants the full picture; "
+            "'example_first' = needs a concrete case before the abstraction; "
+            "'step_by_step' = wants sequential reasoning. "
+            "'unknown' until there is clear evidence."
+        ),
+    )
+
+    responds_to_guiding_questions: Literal["well", "poorly", "unknown"] = Field(
+        default="unknown",
+        description=(
+            "Whether the Socratic 'guiding question' approach works for this "
+            "student. 'poorly' = they disengage, keep asking to just be told, "
+            "or get frustrated when not given the answer directly."
+        ),
+    )
+
+    frustration_tendency: Literal["low", "medium", "high", "unknown"] = Field(
+        default="unknown",
+        description=(
+            "This student's general disposition to get frustrated or stuck, "
+            "across a whole conversation - not a single moment."
+        ),
+    )
+
+    solid_topics: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Topics/subtopics the student has demonstrated a solid grasp of "
+            "across sessions."
+        ),
+    )
+
+    shaky_topics: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Topics/subtopics the student has repeatedly struggled with "
+            "across sessions."
+        ),
+    )
+
+    tutor_note: str = Field(
+        default="",
+        description=(
+            "2-3 sentences addressed to the tutor: how to teach this student "
+            "well. This is the field the tutor's prompt actually reads."
+        ),
+    )
+
+    sessions_observed: int = Field(
+        default=0,
+        description="How many past conversations have fed into this profile. System-managed.",
     )
 
     confidence: float = Field(
         default=0.0,
-        description="Confidence score (0-1) representing how reliable the inferred profile is."
+        ge=0.0,
+        le=1.0,
+        description="How reliable this profile is (grows with sessions_observed). System-managed.",
+    )
+
+    last_updated: Optional[str] = Field(
+        default=None,
+        description="ISO timestamp of the last profiler update. System-managed.",
     )
 
 class LearningState(BaseModel):

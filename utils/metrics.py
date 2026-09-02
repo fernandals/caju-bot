@@ -147,7 +147,7 @@ def record_turn(final_state, discipline: str, db_path: Path = DB_PATH) -> None:
             _field(ap, "response_depth"),
             _field(ts, "mode"),
             _field(ts, "stage"),
-            _field(sp, "current_profile"),
+            _field(sp, "explanation_style"),
             json.dumps(_turn_citations(final_state), ensure_ascii=False),
         )
 

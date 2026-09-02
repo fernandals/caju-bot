@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.chat_pipeline import load_pipeline
+from agent.profiler import profile_student
 from agent.state import StudentProfile, TutorState
 from rag.knowledge_base import (
     describe_course_materials,
@@ -20,6 +21,12 @@ from rag.knowledge_base import (
 from utils.citations import highlight_citations
 from utils.helpers import is_enrolled, load_roster
 from utils.metrics import ensure_metrics_schema, record_turn
+from utils.student_profile import (
+    ensure_profile_schema,
+    latest_other_thread,
+    load_profile,
+    save_profile,
+)
 
 load_dotenv()
 
@@ -229,6 +236,15 @@ _ensure_sqlite_schema()
 # volume, written from on_message (see utils/metrics.py).
 ensure_metrics_schema()
 
+# Per-student personalization profile - own SQLite file on the same
+# volume, refreshed once per session (see _load_or_refresh_profile).
+ensure_profile_schema()
+
+# How long on_chat_start will wait for the profiler before falling back to
+# the stored profile. The refresh keeps running in the background past
+# this and its result is saved for next time.
+PROFILE_REFRESH_TIMEOUT_S = 12
+
 
 @cl.data_layer
 def get_data_layer():
@@ -252,15 +268,81 @@ def auth_callback(username: str, password: str) -> cl.User | None:
     return cl.User(identifier=matricula, display_name=nome, metadata={"name": nome})
 
 
+# ---------------- STUDENT PROFILE ----------------
+def _current_matricula() -> str | None:
+    user = cl.user_session.get("user")
+    return user.identifier if user else None
+
+
+def _safe_thread_id() -> str | None:
+    try:
+        return cl.context.session.thread_id
+    except Exception:  # noqa: BLE001 - only used to exclude the current thread
+        return None
+
+
+def _refresh_profile_sync(matricula: str, current_thread_id: str | None) -> StudentProfile:
+    """
+    Option A catch-up: load the stored profile, and if the student has a
+    finished conversation we haven't profiled yet, fold it in and persist.
+    Runs off the event loop (asyncio.to_thread). Never raises - profiling
+    must not break a session.
+    """
+    profile, last_profiled = load_profile(matricula)
+
+    found = latest_other_thread(DB_PATH, matricula, current_thread_id)
+
+    if found is None:
+        return profile
+
+    thread_id, transcript = found
+
+    if thread_id == last_profiled:
+        return profile
+
+    updated = profile_student(profile, transcript)
+    save_profile(matricula, updated, thread_id)
+
+    return updated
+
+
+async def _load_or_refresh_profile(matricula: str | None) -> StudentProfile:
+    if not matricula:
+        return StudentProfile()
+
+    current_thread_id = _safe_thread_id()
+
+    task = asyncio.create_task(
+        asyncio.to_thread(_refresh_profile_sync, matricula, current_thread_id)
+    )
+
+    try:
+        # shield: a slow profiler keeps running (and saves) past the wait.
+        return await asyncio.wait_for(
+            asyncio.shield(task), timeout=PROFILE_REFRESH_TIMEOUT_S
+        )
+    except asyncio.TimeoutError:
+        logger.info(
+            "Profiler slow for %s; using stored profile, refresh continues",
+            matricula,
+        )
+    except Exception:  # noqa: BLE001 - degrade to stored profile
+        logger.warning("Profile refresh failed for %s", matricula, exc_info=True)
+
+    return load_profile(matricula)[0]
+
+
 # ---------------- CHAT LIFECYCLE ----------------
 @cl.on_chat_start
 async def on_chat_start():
     graph, tutor_prompt, _config = _get_pipeline()
 
+    profile = await _load_or_refresh_profile(_current_matricula())
+
     cl.user_session.set("graph", graph)
     cl.user_session.set(
         "state",
-        TutorState(messages=[tutor_prompt], student_profile=StudentProfile()),  # type: ignore
+        TutorState(messages=[tutor_prompt], student_profile=profile),  # type: ignore
     )
 
     user = cl.user_session.get("user")
@@ -277,9 +359,10 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
     """
     Rebuilds the LangGraph state from a resumed thread's message history.
     Same lossy-resume tradeoff as the old Streamlit app: only the message
-    list is restored, student_profile/learning_state/teaching_state/evidence
-    reset fresh - Chainlit's UI still replays the full step history for
-    display regardless.
+    list is restored, learning_state/teaching_state/evidence reset fresh -
+    Chainlit's UI still replays the full step history for display
+    regardless. The persistent student_profile IS restored (from its own
+    store), but a resume does not trigger a profiler refresh.
     """
     graph, tutor_prompt, _config = _get_pipeline()
 
@@ -291,10 +374,17 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
         elif step.get("type") == "assistant_message":
             messages.append(AIMessage(content=step.get("output", "")))
 
+    matricula = _current_matricula()
+    profile = (
+        await asyncio.to_thread(lambda: load_profile(matricula)[0])
+        if matricula
+        else StudentProfile()
+    )
+
     cl.user_session.set("graph", graph)
     cl.user_session.set(
         "state",
-        TutorState(messages=messages, student_profile=StudentProfile()),  # type: ignore
+        TutorState(messages=messages, student_profile=profile),  # type: ignore
     )
 
 

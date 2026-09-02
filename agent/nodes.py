@@ -11,6 +11,7 @@ from agent.state import (
     AnswerPlan,
     ChunkEvidence,
     LearningState,
+    StudentProfile,
     TeachingState,
     TutorConfig,
     TutorState,
@@ -165,6 +166,7 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     proposed_teaching_state = advance_teaching_state(
         state.get("teaching_state") or TeachingState(),
         learning_state,
+        state.get("student_profile"),
     )
 
     planning_context = f"""
@@ -406,6 +408,7 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
     teaching_state = state.get("teaching_state") or TeachingState()
+    student_profile = state.get("student_profile") or StudentProfile()
 
     teaching_instructions = resolve_teaching_instructions(
         teaching_state, answer_plan.strategy
@@ -436,6 +439,7 @@ EVIDENCE
             domain=config.subject,
             question=question,
             learning_state=learning_state.model_dump_json(indent=2),
+            student_profile=render_student_profile(student_profile),
             # needs_retrieval / confidence are routing signals - noise to
             # the generator, which only needs the "how to answer" fields.
             answer_plan=answer_plan.model_dump_json(
@@ -469,6 +473,41 @@ EVIDENCE
     return {
         "messages": [response]
     }
+
+
+_STYLE_PHRASING = {
+    "concise": "Tends to prefer a concise answer.",
+    "detailed": "Tends to prefer a thorough, detailed explanation.",
+    "example_first": "Grasps ideas better from a concrete example before the theory.",
+    "step_by_step": "Tends to prefer reasoning laid out step by step.",
+}
+
+
+def render_student_profile(profile: StudentProfile) -> str:
+    """Compact, prompt-ready rendering - only the parts we actually know."""
+    parts: list[str] = []
+
+    if profile.tutor_note:
+        parts.append(profile.tutor_note)
+
+    if profile.explanation_style in _STYLE_PHRASING:
+        parts.append(_STYLE_PHRASING[profile.explanation_style])
+
+    if profile.responds_to_guiding_questions == "poorly":
+        parts.append("Does not respond well to being asked guiding questions - be more direct.")
+    elif profile.responds_to_guiding_questions == "well":
+        parts.append("Engages well with guiding questions.")
+
+    if profile.solid_topics:
+        parts.append(f"Already solid on: {', '.join(profile.solid_topics)}.")
+
+    if profile.shaky_topics:
+        parts.append(f"Has repeatedly struggled with: {', '.join(profile.shaky_topics)}.")
+
+    if not parts:
+        return "(No profile yet - this is one of the first sessions with this student.)"
+
+    return " ".join(parts)
 
 
 def resolve_teaching_instructions(teaching_state: TeachingState, strategy: str) -> str:
