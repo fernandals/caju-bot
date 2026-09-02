@@ -19,6 +19,14 @@ from rag.citation import format_citation
 from rag.models import ChunkMetadata
 
 
+# update_tracking's prompt is incremental - it updates the existing
+# LearningState from the latest turns, with that state as its baseline
+# truth - so it doesn't need the whole history. Cap the transcript it sees
+# so a long session doesn't re-pay for every earlier turn on every message
+# (planning and generation already window their message slices).
+TRACKING_WINDOW = 12
+
+
 def build_conversation_transcript(messages) -> str:
     """
     Renders messages as a clean {turn, role, content} transcript for LLM
@@ -52,7 +60,9 @@ def update_tracking(state: TutorState, model):
     # -------------------------
     # Conversation context
     # -------------------------
-    conversation_text = build_conversation_transcript(state["messages"])
+    conversation_text = build_conversation_transcript(
+        state["messages"][-TRACKING_WINDOW:]
+    )
 
     # -------------------------
     # Previous state
