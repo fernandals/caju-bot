@@ -1,6 +1,8 @@
+import logging
 from functools import partial
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from agent.nodes import (
     assess_documents,
@@ -11,6 +13,8 @@ from agent.nodes import (
 )
 from agent.state import TutorConfig, TutorState
 
+logger = logging.getLogger(__name__)
+
 
 def route_after_planning(state: TutorState):
     if state["answer_plan"].needs_retrieval:
@@ -18,7 +22,7 @@ def route_after_planning(state: TutorState):
 
     return "generate_answer"
 
-def build_graph(config: TutorConfig, retriever, models) -> StateGraph[TutorState]:
+def build_graph(config: TutorConfig, retriever, models) -> CompiledStateGraph:
     graph = StateGraph(TutorState)
 
     graph.add_node("tracking", partial(update_tracking, model=models.tracking_llm))
@@ -43,9 +47,9 @@ def build_graph(config: TutorConfig, retriever, models) -> StateGraph[TutorState
     graph.add_edge("assess_documents", "generate_answer")
     graph.add_edge("generate_answer", END)
 
-    graph = graph.compile()
+    compiled = graph.compile()
 
-    print("--> Graph Visualization:")
-    print(graph.get_graph().draw_ascii())
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Tutor graph:\n%s", compiled.get_graph().draw_ascii())
 
-    return graph # type: ignore
+    return compiled

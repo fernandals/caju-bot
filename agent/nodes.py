@@ -1,3 +1,4 @@
+import functools
 import json
 import re
 import time
@@ -25,6 +26,36 @@ from rag.models import ChunkMetadata
 # so a long session doesn't re-pay for every earlier turn on every message
 # (planning and generation already window their message slices).
 TRACKING_WINDOW = 12
+
+
+def node(label: str):
+    """
+    Wraps a graph node with the START banner + execution-time print every
+    node was repeating by hand.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            print(f"\n========== START {label} ==========")
+            start = time.perf_counter()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                elapsed = time.perf_counter() - start
+                print(f"[{label}] Execution time: {elapsed:.2f} seconds")
+
+        return wrapper
+
+    return decorator
+
+
+def latest_student_question(messages) -> str | None:
+    """Content of the most recent HumanMessage, or None if there is none."""
+    return next(
+        (msg.content for msg in reversed(messages) if isinstance(msg, HumanMessage)),
+        None,
+    )
 
 
 def build_conversation_transcript(messages) -> str:
@@ -58,15 +89,12 @@ def build_conversation_transcript(messages) -> str:
     return json.dumps(conversation, indent=2, ensure_ascii=False)
 
 
+@node("TRACKING")
 def update_tracking(state: TutorState, model):
     """
     Infers and updates the student's current pedagogical learning state
     from the recent conversation context.
     """
-
-    print("\n========== START TRACKING ==========")
-
-    start_time = time.perf_counter()
 
     # -------------------------
     # Conversation context
@@ -115,17 +143,15 @@ Recent conversation:
         # Structured parse failed. Tracking is advisory and the prompt
         # treats the previous state as baseline truth anyway, so carry it
         # forward rather than crashing the turn.
-        print("[TRACKING NODE] No structured output; keeping previous state.")
+        print("[TRACKING] No structured output; keeping previous state.")
         new_learning_state = previous_state or LearningState()
-
-    end_time = time.perf_counter()
-    execution_time = end_time - start_time
-    print(f"[TRACKING NODE] Execution time: {execution_time:.2f} seconds")
 
     return {
         "learning_state": new_learning_state,
     }
 
+
+@node("PLANNING")
 def plan_instruction(state: TutorState, config: TutorConfig, model):
     """
     Determines the pedagogical response strategy for the current interaction.
@@ -133,10 +159,6 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     It only produces a structured instructional plan that downstream
     nodes will execute.
     """
-
-    print("\n========== START PLANNING ==========")
-
-    start_time = time.perf_counter()
 
     learning_state = state["learning_state"]
 
@@ -173,7 +195,7 @@ Recent conversation:
         # Structured parse failed - fall back to guided teaching with
         # retrieval, the system's default pacing, rather than crashing the
         # turn (route_after_planning would hit .needs_retrieval on None).
-        print("[PLANNING NODE] No structured output; using default plan.")
+        print("[PLANNING] No structured output; using default plan.")
         answer_plan = AnswerPlan(
             needs_retrieval=True,
             strategy="guided_teaching",
@@ -197,10 +219,6 @@ Recent conversation:
     ):
         teaching_state = teaching_state.model_copy(update={"mode": "direct"})
 
-    end_time = time.perf_counter()
-    execution_time = end_time - start_time
-    print(f"[PLANNING NODE] Execution time: {execution_time:.2f} seconds")
-
     result = {
         "answer_plan": answer_plan,
         "teaching_state": teaching_state,
@@ -218,23 +236,19 @@ Recent conversation:
 
     return result
 
+@node("DOCUMENT RETRIEVAL")
 def retrieve_documents(state: TutorState, retriever):
     """
     Retrieves relevant instructional documents based on the current learning
     state and the student's question.
     """
 
-    print("\n========== START DOCUMENT RETRIEVAL ==========")
-
-    start_time = time.perf_counter()
-
     learning_state = state["learning_state"]
 
-    question = next(
-        msg.content
-        for msg in reversed(state["messages"])
-        if isinstance(msg, HumanMessage)
-    )
+    question = latest_student_question(state["messages"])
+
+    if question is None:
+        raise ValueError("No HumanMessage found during document retrieval.")
 
     # Augment with topic/subtopic, which are genuinely part of what's being
     # asked about. Previously this also injected intent/strategy-derived
@@ -255,14 +269,12 @@ def retrieve_documents(state: TutorState, retriever):
 
     docs = retriever.invoke(query)
 
-    end_time = time.perf_counter()
-    execution_time = end_time - start_time
-    print(f"[DOCUMENT RETRIEVAL] Execution time: {execution_time:.2f} seconds")
-
     return {
         "retrieved_docs": docs,
     }
 
+
+@node("DOCUMENT ASSESSMENT")
 def assess_documents(state: TutorState, config: TutorConfig, model):
     """
     Single pass over each retrieved chunk that BOTH grades its relevance
@@ -277,10 +289,6 @@ def assess_documents(state: TutorState, config: TutorConfig, model):
     Chainlit citation linkifier, the metrics recorder).
     """
 
-    print("\n========== START DOCUMENT ASSESSMENT ==========")
-
-    start_time = time.perf_counter()
-
     retrieved_docs = state.get("retrieved_docs", [])
 
     if not retrieved_docs:
@@ -289,19 +297,10 @@ def assess_documents(state: TutorState, config: TutorConfig, model):
             "evidence": [],
         }
 
-    question = next(
-        (
-            msg.content
-            for msg in reversed(state["messages"])
-            if isinstance(msg, HumanMessage)
-        ),
-        None
-    )
+    question = latest_student_question(state["messages"])
 
-    if not question:
-        raise ValueError(
-            "No HumanMessage found during document assessment."
-        )
+    if question is None:
+        raise ValueError("No HumanMessage found during document assessment.")
 
     learning_state = state["learning_state"]
 
@@ -385,15 +384,13 @@ Retrieved chunk:
             f"evidence_items={len(assessment.evidence)}"
         )
 
-    end_time = time.perf_counter()
-    execution_time = end_time - start_time
-    print(f"[DOCUMENT ASSESSMENT] Execution time: {execution_time:.2f} seconds")
-
     return {
         "retrieved_docs": filtered_docs,
         "evidence": evidence,
     }
 
+
+@node("ANSWER GENERATION")
 def generate_answer(state: TutorState, config: TutorConfig, model):
     """
     Generates the final answer to the student's question based on the
@@ -401,30 +398,17 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     documents.
     """
 
-    print("\n========== START ANSWER GENERATION ==========")
+    question = latest_student_question(state["messages"])
 
-    start_time = time.perf_counter()
-
-    question = next(
-        msg.content
-        for msg in reversed(state["messages"])
-        if isinstance(msg, HumanMessage)
-    )
+    if question is None:
+        raise ValueError("No HumanMessage found during answer generation.")
 
     learning_state = state["learning_state"]
     answer_plan = state["answer_plan"]
     teaching_state = state.get("teaching_state") or TeachingState()
 
-    planning_rationale = getattr(
-        answer_plan,
-        "rationale",
-        "",
-    )
-
-    teaching_instructions = (
-        prompts.DIRECT_MODE_INSTRUCTIONS
-        if teaching_state.mode == "direct"
-        else prompts.TEACHING_STAGE_INSTRUCTIONS[teaching_state.stage]
+    teaching_instructions = resolve_teaching_instructions(
+        teaching_state, answer_plan.strategy
     )
 
     context = ""
@@ -451,14 +435,14 @@ EVIDENCE
         content=prompts.GENERATE_PROMPT.format(
             domain=config.subject,
             question=question,
-            learning_state=learning_state.model_dump_json(
-                indent=2
-            ),
+            learning_state=learning_state.model_dump_json(indent=2),
+            # needs_retrieval / confidence are routing signals - noise to
+            # the generator, which only needs the "how to answer" fields.
             answer_plan=answer_plan.model_dump_json(
-                indent=2
+                indent=2,
+                exclude={"needs_retrieval", "confidence"},
             ),
             teaching_instructions=teaching_instructions,
-            planning_rationale=planning_rationale,
             context=context,
             answer_language=config.answer_language,
             max_sentences=config.max_sentences,
@@ -482,13 +466,35 @@ EVIDENCE
             }
         )
 
-    end_time = time.perf_counter()
-    execution_time = end_time - start_time
-    print(f"[ANSWER GENERATION] Execution time: {execution_time:.2f} seconds")
-
     return {
         "messages": [response]
     }
+
+
+def resolve_teaching_instructions(teaching_state: TeachingState, strategy: str) -> str:
+    """
+    Picks the instruction block for generate_answer.
+
+    Base: teaching_state decides pacing - "direct" mode, otherwise the
+    current stage of the guided arc. On top of that, the planner's
+    `strategy` can further shape the response:
+      - exercise_first / hint_only replace the stage block entirely (they
+        change what kind of reply this is), unless we're already in direct
+        mode;
+      - step_by_step just appends a formatting note.
+    """
+    if teaching_state.mode == "direct":
+        base = prompts.DIRECT_MODE_INSTRUCTIONS
+    elif strategy in prompts.STRATEGY_OVERRIDE_INSTRUCTIONS:
+        base = prompts.STRATEGY_OVERRIDE_INSTRUCTIONS[strategy]
+    else:
+        base = prompts.TEACHING_STAGE_INSTRUCTIONS[teaching_state.stage]
+
+    if strategy == "step_by_step":
+        return f"{base}\n\n{prompts.STRATEGY_STEP_NOTE}"
+
+    return base
+
 
 CITATION_MARKER_REGEX = re.compile(r"\[\[CITE:(DOC_\d+)\]\]")
 

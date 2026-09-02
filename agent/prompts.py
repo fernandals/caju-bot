@@ -309,6 +309,29 @@ DIRECT_MODE_INSTRUCTIONS = (
     "needs a straightforward, complete answer now." + _CITATION_REMINDER
 )
 
+# When the planner picks one of these strategies (student wants to work
+# through it themselves), it replaces the guided-stage block: the response
+# is a problem or a hint, not an explanation. Not used in "direct" mode.
+STRATEGY_OVERRIDE_INSTRUCTIONS = {
+    "exercise_first": (
+        "Give the student a concrete problem or exercise to attempt "
+        "themselves, grounded in the retrieved material. Pose it clearly "
+        "and stop there — do not solve it or explain the concept in the "
+        "same message; offer to check their attempt." + _CITATION_REMINDER
+    ),
+    "hint_only": (
+        "Give only a minimal hint that unblocks the student's next step, "
+        "grounded in the retrieved material — not the full explanation. "
+        "Let them carry on from there." + _CITATION_REMINDER
+    ),
+}
+
+# step_by_step is a formatting modifier - appended to whichever block applies.
+STRATEGY_STEP_NOTE = (
+    "Structure the explanation as explicit, numbered steps the student can "
+    "follow in order."
+)
+
 GENERATE_PROMPT = """
 You are an adaptive AI tutor helping a student learn {domain}.
 

@@ -10,7 +10,7 @@ from agent.models import ModelRegistry
 from agent.state import TutorConfig
 from rag.knowledge_base import load_knowledge_base
 
-logger = logging.getLogger(__name__)  
+logger = logging.getLogger(__name__)
 
 def load_pipeline(discipline_name: str):
     """
@@ -25,13 +25,11 @@ def load_pipeline(discipline_name: str):
     logger.info("Loading pipeline for discipline: %s", discipline_name)
 
     # --------------------------------------------------
-    # Load retriever 
-    # -------------------------------------------------- 
-    try:
-        retriever = load_knowledge_base(discipline_name)
-    except ValueError as e:
-        logger.error("Failed to load knowledge base: %s", e)
-        raise
+    # Load retriever
+    # --------------------------------------------------
+    # load_knowledge_base raises ValueError with a clear message if the
+    # discipline has no persisted KB - let it propagate.
+    retriever = load_knowledge_base(discipline_name)
 
     # --------------------------------------------------
     # Build Configuration
