@@ -22,11 +22,12 @@ O projeto tem duas aplicações separadas:
   fica embarcada na imagem.
 
 Por trás dos dois, o mesmo agente: um grafo LangGraph
-(`agent/graph.py`) com 6 nós —
-`tracking → planning → (retrieve, condicional) → grade_documents → extract_evidence → generate_answer`.
+(`agent/graph.py`) com 5 nós —
+`tracking → planning → (retrieve, condicional) → assess_documents → generate_answer`.
 Ele mantém um perfil de aprendizagem do aluno entre turnos, decide uma
-estratégia pedagógica antes de gerar qualquer resposta, filtra os trechos
-recuperados por relevância, e só responde citando a evidência extraída
+estratégia pedagógica antes de gerar qualquer resposta, e num único passo
+por trecho recuperado (`assess_documents`) pontua a relevância e extrai a
+evidência estruturada — só responde citando essa evidência
 (anti-alucinação). Cada nó usa um modelo diferente, configurável por
 variável de ambiente — modelos baratos/rápidos para tracking/grading,
 melhores para planning/geração.

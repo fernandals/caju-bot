@@ -1,9 +1,12 @@
 from pydantic import BaseModel, Field
 
 
-class GradeDocument(BaseModel):
+class ChunkAssessment(BaseModel):
     """
-    Pedagogical relevance assessment for a retrieved document chunk.
+    Combined relevance grade + evidence extraction for one retrieved
+    chunk, produced in a single LLM pass (see
+    agent/nodes.py::assess_documents). Replaces the old two-step
+    GradeDocument-then-extract flow.
     """
 
     relevance_score: float = Field(
@@ -19,5 +22,14 @@ class GradeDocument(BaseModel):
     reason: str = Field(
         description=(
             "Brief explanation of why the chunk received this score."
+        )
+    )
+
+    evidence: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Atomic factual statements directly supported by this chunk, "
+            "for a later generation step. Empty when the chunk is "
+            "irrelevant to the student's question."
         )
     )

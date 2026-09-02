@@ -5,7 +5,7 @@ import time
 from langchain_core.messages import HumanMessage, SystemMessage
 
 import agent.prompts as prompts
-from agent.grader import GradeDocument
+from agent.grader import ChunkAssessment
 from agent.state import (
     AnswerPlan,
     ChunkEvidence,
@@ -212,15 +212,31 @@ def retrieve_documents(state: TutorState, retriever):
         "retrieved_docs": docs,
     }
 
-def grade_documents(state: TutorState, config: TutorConfig, model):
+def assess_documents(state: TutorState, config: TutorConfig, model):
     """
-    Filters retrieved documents by semantic relevance
-    before answer generation.
+    Single pass over each retrieved chunk that BOTH grades its relevance
+    and extracts grounded evidence - previously two separate LLM batches
+    (grade_documents then extract_evidence) over the same chunks on every
+    turn.
+
+    Filters the chunks by relevance (same thresholds and fallback as
+    before), then returns the survivors together with their evidence,
+    kept in the same order so that retrieved_docs[i] lines up with
+    evidence[i] for every downstream consumer (generate_answer, the
+    Chainlit citation linkifier, the metrics recorder).
     """
 
-    print("\n========== START DOCUMENT GRADING ==========")
+    print("\n========== START DOCUMENT ASSESSMENT ==========")
 
     start_time = time.perf_counter()
+
+    retrieved_docs = state.get("retrieved_docs", [])
+
+    if not retrieved_docs:
+        return {
+            "retrieved_docs": [],
+            "evidence": [],
+        }
 
     question = next(
         (
@@ -233,27 +249,20 @@ def grade_documents(state: TutorState, config: TutorConfig, model):
 
     if not question:
         raise ValueError(
-            "No HumanMessage found during document grading."
+            "No HumanMessage found during document assessment."
         )
-
-    retrieved_docs = state.get("retrieved_docs", [])
-
-    if not retrieved_docs:
-        return {
-            "retrieved_docs": [],
-        }
 
     learning_state = state["learning_state"]
 
-    grader = model.with_structured_output(GradeDocument)
+    assessor = model.with_structured_output(ChunkAssessment)
 
     system = SystemMessage(
-        content=prompts.GRADE_PROMPT.format(
+        content=prompts.ASSESS_PROMPT.format(
             domain=config.subject
         )
     )
 
-    grading_inputs = [
+    inputs = [
         [
             system,
             HumanMessage(
@@ -272,101 +281,59 @@ Retrieved chunk:
         for doc in retrieved_docs
     ]
 
-    results: list[GradeDocument] = grader.batch(grading_inputs)
+    results: list[ChunkAssessment] = assessor.batch(inputs)
 
-    scored_docs = list(zip(retrieved_docs, results))
-
-    # ordenar por score
-    scored_docs.sort(
-        key=lambda x: x[1].relevance_score,
-        reverse=True
+    scored_docs = sorted(
+        zip(retrieved_docs, results),
+        key=lambda pair: pair[1].relevance_score,
+        reverse=True,
     )
 
     # threshold
-    filtered_docs = [
-        doc
-        for doc, result
-        in scored_docs
-        if result.relevance_score >= 0.5
+    kept = [
+        (doc, assessment)
+        for doc, assessment in scored_docs
+        if assessment.relevance_score >= 0.5
     ]
 
     # fallback: only when the top scores are at least weakly relevant.
     # Below this floor, the chunks are clearly irrelevant and shouldn't be
     # forced into the answer just to have "something" to cite.
-    if not filtered_docs:
-        filtered_docs = [
-            doc
-            for doc, result
-            in scored_docs[:3]
-            if result.relevance_score >= 0.2
+    if not kept:
+        kept = [
+            (doc, assessment)
+            for doc, assessment in scored_docs[:3]
+            if assessment.relevance_score >= 0.2
         ]
 
-    end_time = time.perf_counter()
-    execution_time = end_time - start_time
-    print(f"[DOCUMENT GRADING] Execution time: {execution_time:.2f} seconds")
-
-    return {
-        "retrieved_docs": filtered_docs,
-    }
- 
-def extract_evidence(state: TutorState, config: TutorConfig, model):
-
-    print("\n========== START EVIDENCE EXTRACTION ==========")
-
-    start_time = time.perf_counter()
-
-    retrieved_docs = state.get("retrieved_docs", [])
-
-    if not retrieved_docs:
-        return {
-            "evidence": []
-        }
-
-    extractor = model.with_structured_output(
-        ChunkEvidence
-    )
-
-    system = SystemMessage(
-        content=prompts.EVIDENCE_PROMPT
-    )
-
-    extraction_inputs = [
-        [
-            system,
-            HumanMessage(
-                content=f"""
-Chunk:
-
-{doc.page_content}
-"""
-            )
-        ]
-        for doc in retrieved_docs
-    ]
-
-    results: list[ChunkEvidence] = extractor.batch(extraction_inputs)
-
+    filtered_docs = []
     evidence = []
 
-    for i, (doc, result) in enumerate(zip(retrieved_docs, results), start=1):
+    for i, (doc, assessment) in enumerate(kept, start=1):
 
         metadata = ChunkMetadata.model_validate(doc.metadata) # type: ignore
 
-        result.doc_id = f"DOC_{i}"
-        result.citation = format_citation(metadata)
+        filtered_docs.append(doc)
+        evidence.append(
+            ChunkEvidence(
+                doc_id=f"DOC_{i}",
+                citation=format_citation(metadata),
+                evidence=assessment.evidence,
+            )
+        )
 
-        evidence.append(result)
-
-        print(f"[EVIDENCE EXTRACTION] Processed DOC_{i} / {len(retrieved_docs)}")
-        print(f"[EVIDENCE EXTRACTION] Result: {result.model_dump_json(indent=2)}")
-        print(f"[EVIDENCE EXTRACTION] Retrieved document content: {doc.page_content}")
-        print(f"[EVIDENCE EXTRACTION] Retrieved document metadata: {metadata}")
+        print(
+            f"[DOCUMENT ASSESSMENT] DOC_{i}: "
+            f"score={assessment.relevance_score:.2f}, "
+            f"evidence_items={len(assessment.evidence)}"
+        )
 
     end_time = time.perf_counter()
     execution_time = end_time - start_time
-    print(f"[EVIDENCE EXTRACTION] Execution time: {execution_time:.2f} seconds")
+    print(f"[DOCUMENT ASSESSMENT] Execution time: {execution_time:.2f} seconds")
 
     return {
+        "retrieved_docs": filtered_docs,
         "evidence": evidence,
     }
 

@@ -3,9 +3,8 @@ from functools import partial
 from langgraph.graph import END, START, StateGraph
 
 from agent.nodes import (
-    extract_evidence,
+    assess_documents,
     generate_answer,
-    grade_documents,
     plan_instruction,
     retrieve_documents,
     update_tracking,
@@ -25,8 +24,7 @@ def build_graph(config: TutorConfig, retriever, models) -> StateGraph[TutorState
     graph.add_node("tracking", partial(update_tracking, model=models.tracking_llm))
     graph.add_node("planning", partial(plan_instruction, config=config, model=models.planning_llm))
     graph.add_node("retrieve", partial(retrieve_documents, retriever=retriever))
-    graph.add_node("grade_documents", partial(grade_documents, config=config, model=models.grading_llm))
-    graph.add_node("extract_evidence", partial(extract_evidence, config=config, model=models.grading_llm))
+    graph.add_node("assess_documents", partial(assess_documents, config=config, model=models.grading_llm))
     graph.add_node("generate_answer", partial(generate_answer, config=config, model=models.generation_llm))
 
     graph.add_edge(START, "tracking")
@@ -41,9 +39,8 @@ def build_graph(config: TutorConfig, retriever, models) -> StateGraph[TutorState
         },
     )
 
-    graph.add_edge("retrieve", "grade_documents")    
-    graph.add_edge("grade_documents", "extract_evidence")
-    graph.add_edge("extract_evidence", "generate_answer") 
+    graph.add_edge("retrieve", "assess_documents")
+    graph.add_edge("assess_documents", "generate_answer")
     graph.add_edge("generate_answer", END)
 
     graph = graph.compile()

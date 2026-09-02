@@ -175,35 +175,45 @@ OUTPUT ONLY THE STRUCTURED PLAN.
 
 # -------------------------------------------------------------------------------------------------------------- #
 
-EVIDENCE_PROMPT = """
-You are an evidence extraction component in a Retrieval-Augmented
-Generation (RAG) tutoring system.
+ASSESS_PROMPT = """
+You are a retrieval assessor in a Retrieval-Augmented Generation (RAG)
+tutoring system about {domain}.
 
-Your task is to transform a retrieved textbook chunk into structured,
-source-grounded evidence that will be used by a later generation node.
+For ONE retrieved textbook chunk, do BOTH of the following in a single
+pass, given the student's question and current learning state:
 
-You MUST NOT answer the student's question.
+1. RELEVANCE
+   Score how useful this chunk is for answering the student's question
+   and supporting their learning.
 
-For the provided chunk, extract concise atomic factual statements directly
-supported by its content.
+   0.0-0.3 → Irrelevant or mostly unrelated.
+   0.4-0.6 → Partially useful. Supporting context, does not directly
+             address the student's need.
+   0.7-0.8 → Relevant. Would help answer the question or support
+             understanding.
+   0.9-1.0 → Highly relevant. Directly useful for teaching the concept.
 
-Source location and citation are handled entirely outside of this step —
-do not attempt to identify sections, pages, chapters, or construct a
-citation. Focus only on the factual content of the chunk.
+   Be strict and discriminate between chunks. Do not give high scores to
+   everything. Give a short `reason`.
 
-EVIDENCE RULES:
+2. EVIDENCE
+   Extract concise atomic factual statements that the chunk DIRECTLY
+   supports, for a later generation step. Do NOT answer the student's
+   question here.
 
-- Every evidence item must be directly supported by the chunk.
-- Keep evidence atomic: one factual claim per item.
-- Do not combine unrelated claims.
-- Do not add information from outside the chunk.
-- Do not interpret figures beyond what is explicitly stated in the text.
-- Do not infer relationships that are not explicitly described.
-- Preserve important technical terminology from the source.
-- Prefer statements that are useful for answering questions about the chunk.
+   - Every item must be directly supported by the chunk.
+   - One factual claim per item; do not combine unrelated claims.
+   - Nothing from outside the chunk; do not infer unstated relationships
+     or interpret figures beyond what the text explicitly says.
+   - Preserve important technical terminology from the source.
+   - Do NOT identify sections, pages or chapters, and do NOT build a
+     citation — that is handled outside this step.
+   - If the chunk is essentially irrelevant to the question (score below
+     ~0.2), return an empty evidence list.
 
-The output will be consumed by another model, so prioritize factual
-accuracy, traceability, and precise source attribution over natural language.
+The output is consumed by another model, so prioritize factual accuracy
+and traceability over natural language. Return only the structured
+assessment.
 """
 
 # -------------------------------------------------------------------------------------------------------------- #
@@ -405,36 +415,6 @@ Never:
 * Be clear, natural and pedagogical.
 * Encourage understanding instead of memorization.
 * Keep the answer concise unless a deeper explanation is requested.
-"""
-
-# -------------------------------------------------------------------------------------------------------------- #
-
-GRADE_PROMPT = """
-You are a document relevance grader for an educational tutoring system about {domain}.
-
-Your task is to evaluate how useful a retrieved chunk is for helping the student.
-
-Consider:
-
-- the student's question
-- the current learning state
-- pedagogical usefulness
-- conceptual relevance
-- instructional value
-
-Scoring guide:
-
-0.0-0.3 → Irrelevant or mostly unrelated.
-0.4-0.6 → Partially useful. Provides supporting context but does not directly address the student's need.
-0.7-0.8 → Relevant. Would help answer the question or support understanding.
-0.9-1.0 → Highly relevant. Directly useful for teaching the requested concept.
-
-Return:
-- relevance_score
-- short reason
-
-Be strict and discriminate between chunks.
-Avoid giving high scores to everything.
 """
 
 # -------------------------------------------------------------------------------------------------------------- #

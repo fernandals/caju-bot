@@ -96,8 +96,8 @@ def _field(obj, name, default=None):
 def _turn_citations(final_state) -> list[dict]:
     """Structured view of the material pulled for this turn.
 
-    evidence[i] lines up with retrieved_docs[i] - extract_evidence builds
-    both from the same zip in the same order.
+    evidence[i] lines up with retrieved_docs[i] - assess_documents builds
+    both from the same kept list in the same order.
     """
     docs = final_state.get("retrieved_docs") or []
     evidence = final_state.get("evidence") or []
