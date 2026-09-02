@@ -137,8 +137,38 @@ redeploys and restarts. It is **not** in the container image — only the
 code that writes it is. Pull the file whenever you want to look, then
 open it in the local app.
 
-**Railway.** `railway volume files` copies over SSH, so once per machine
-you need a key registered with Railway:
+**Easiest — the helper script.** From the repo root, with the Railway
+project linked (`railway status` should show the `langchain-rag`
+service):
+
+```
+python -m scripts.pull_metrics
+```
+
+This downloads `metrics.db` from the volume to `data/chats/metrics.db`
+(overwriting any previous copy) — exactly where the metrics tab looks by
+default. Then:
+
+```
+streamlit run app.py
+```
+
+and open the **📊 Métricas da turma** tab.
+
+Useful flags:
+
+- `--open` — run `streamlit run app.py` automatically once the download
+  finishes.
+- `--chainlit` — also pull `chainlit.db` (chat history) into the same
+  folder.
+- `--volume NAME` / `--dest PATH` — override the volume name or the local
+  destination.
+
+The script shells out to the Railway CLI, so the one-time SSH key setup
+below still applies.
+
+**Manual — the Railway CLI directly.** `railway volume files` copies over
+SSH, so once per machine you need a key registered with Railway:
 
 ```
 railway ssh keys add            # walks you through generating/registering a key
