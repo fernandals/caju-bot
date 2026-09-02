@@ -1,5 +1,6 @@
 import math
 import re
+import unicodedata
 import uuid
 from pathlib import Path
 from pprint import pprint
@@ -114,6 +115,85 @@ def load_roster(path: Path) -> set[str]:
 
 def is_enrolled(student_id: str, roster: set[str]) -> bool:
     return student_id.strip() in roster
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(
+        c
+        for c in unicodedata.normalize("NFD", text)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+def parse_sigaa_roster(source: Any) -> list[str]:
+    """
+    Extracts the enrollment IDs (matrículas) from a SIGAA "Planilha de
+    notas" .xls export - the file a teacher downloads from SIGAA to enter
+    grades. The sheet has some header/instruction rows, then a row whose
+    first data column is labelled "Matrícula", then one student per line.
+
+    We locate that "Matrícula" header cell and read its column downward,
+    keeping every value that is all digits. Returns the IDs in sheet
+    order, de-duplicated.
+
+    `source` is a path, a file-like object, or the raw bytes of the .xls
+    (e.g. a Streamlit upload's .getvalue()).
+    """
+    import io
+
+    import pandas as pd
+
+    if isinstance(source, (bytes, bytearray)):
+        source = io.BytesIO(source)
+
+    df = pd.read_excel(source, header=None, dtype=str, engine="xlrd")
+
+    header_col = None
+    header_row = None
+    for row_idx, row in df.iterrows():
+        for col_idx, value in enumerate(row):
+            if (
+                isinstance(value, str)
+                and _strip_accents(value).strip().lower() == "matricula"
+            ):
+                header_row, header_col = row_idx, col_idx
+                break
+        if header_col is not None:
+            break
+
+    if header_col is None:
+        raise ValueError(
+            "Não encontrei a coluna 'Matrícula' na planilha. "
+            "Confira se este é o arquivo .xls exportado do SIGAA."
+        )
+
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in df.iloc[header_row + 1 :, header_col]:
+        if not isinstance(value, str):
+            continue
+        student_id = value.strip()
+        if student_id.isdigit() and student_id not in seen:
+            seen.add(student_id)
+            ids.append(student_id)
+
+    return ids
+
+
+def write_roster(
+    ids: list[str],
+    path: Path,
+    header: str | None = None,
+) -> None:
+    """
+    Writes a plain-text roster in the format load_roster expects: one ID
+    per line, with an optional leading '# ' comment line.
+    """
+    lines = [f"# {header}"] if header else []
+    lines.extend(ids)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 def print_tutor_state(
     state: Any,

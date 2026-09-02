@@ -20,15 +20,19 @@ Two ways to do this — pick whichever fits your workflow:
 streamlit run app.py
 ```
 
-Go through "Criar disciplina", upload the course's PDFs, and give it a
-name.
+Go through "Criar disciplina", upload the course's PDFs and the SIGAA
+grade sheet (`.xls`), and give it a name. This produces both the
+knowledge base and `data/roster.txt` in one step — skip step 2 below.
 
 **CLI**: point the script at a folder of PDFs directly — no UI needed,
 good for scripting/automating a teacher's pipeline end-to-end.
 
 ```
-python -m scripts.create_kb <pdf_folder> "<discipline name>"
+python -m scripts.create_kb <pdf_folder> "<discipline name>" --roster notas.xls
 ```
+
+`--roster` is optional; when given, it also writes `data/roster.txt` from
+the SIGAA grade sheet's "Matrícula" column (step 2).
 
 Both produce the same thing: a folder under `data/knowledge_bases/<kb_id>/`.
 
@@ -39,8 +43,11 @@ courses locally, move the others out of the way first.
 
 ## 2. Prepare the roster
 
-Create `data/roster.txt`: one valid enrollment ID per line. Blank lines
-and lines starting with `#` are ignored.
+If you used the "Criar disciplina" UI in step 1, this is already done —
+it read the SIGAA grade sheet and wrote `data/roster.txt` for you.
+
+Otherwise, create `data/roster.txt` by hand: one valid enrollment ID per
+line. Blank lines and lines starting with `#` are ignored.
 
 ```
 # Software Architecture - Fall 2026

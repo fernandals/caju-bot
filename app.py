@@ -11,6 +11,9 @@ from rag.knowledge_base import (
     create_and_save_knowledge_base,
     list_material_sections,
 )
+from utils.helpers import parse_sigaa_roster, write_roster
+
+ROSTER_PATH = Path("data/roster.txt")
 
 st.set_page_config(
     page_title="Tutor — Painel do professor", page_icon="👨‍🏫", layout="centered"
@@ -32,9 +35,10 @@ def normalize_name(name):
 with tab_create:
     st.title("👨‍🏫 Criar disciplina")
     st.caption(
-        "Envie os PDFs da disciplina e gere a base de conhecimento usada pelo "
-        "tutor. O próximo passo, fora desta interface, é empacotar essa base "
-        "numa imagem Docker e publicar (ver DEPLOY.md)."
+        "Envie os PDFs da disciplina e a planilha de notas do SIGAA para gerar "
+        "a base de conhecimento e a lista de matrículas usadas pelo tutor. O "
+        "próximo passo, fora desta interface, é empacotar tudo numa imagem "
+        "Docker e publicar (ver DEPLOY.md)."
     )
 
     st.markdown("---")
@@ -47,6 +51,16 @@ with tab_create:
         accept_multiple_files=True,
     )
 
+    roster_file = st.file_uploader(
+        "Envie a planilha de notas do SIGAA (.xls)",
+        type=["xls"],
+        help=(
+            "É o arquivo que você baixa do SIGAA para lançar notas. O sistema "
+            "lê a coluna 'Matrícula' e gera a lista de alunos com acesso ao "
+            "tutor (data/roster.txt)."
+        ),
+    )
+
     if st.button("🚀 Criar", width="stretch"):
 
         if not discipline_name:
@@ -55,6 +69,23 @@ with tab_create:
 
         if not uploaded_files:
             st.warning("Envie pelo menos um PDF")
+            st.stop()
+
+        if not roster_file:
+            st.warning("Envie a planilha de notas do SIGAA (.xls)")
+            st.stop()
+
+        try:
+            student_ids = parse_sigaa_roster(roster_file.getvalue())
+        except Exception as exc:  # noqa: BLE001 - surface parse errors to the user
+            st.error(f"Não consegui ler a planilha de notas: {exc}")
+            st.stop()
+
+        if not student_ids:
+            st.warning(
+                "A planilha foi lida, mas nenhuma matrícula foi encontrada. "
+                "Confira se este é o arquivo .xls exportado do SIGAA."
+            )
             st.stop()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -67,7 +98,13 @@ with tab_create:
             with st.spinner("Criando base de conhecimento..."):
                 kb = create_and_save_knowledge_base(tmp_path, discipline_name)  # type: ignore
 
+        write_roster(student_ids, ROSTER_PATH, header=discipline_name)
+
         st.success(f"Base '{discipline_name}' criada com sucesso!")
+        st.caption(
+            f"Lista de matrículas gravada em `{ROSTER_PATH}` "
+            f"({len(student_ids)} aluno(s))."
+        )
 
         if kb.stats:
             st.caption(
