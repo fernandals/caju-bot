@@ -193,3 +193,65 @@ O grafo do agente já calcula sinais pedagógicos ricos por turno (`LearningStat
 - Atualizar `main.py` para o padrão multi-KB (ainda pendente desde 08-17).
 - Paralelizar/batchar grading e extração de evidência (ainda pendente desde 08-17).
 - Depois de um uso real em produção: baixar o `metrics.db` via `railway volume files download`, abrir no `app.py` e confirmar que os agregados batem com o que rolou no chat.
+
+---
+
+## 📅 Data
+- **2026-09-02** (revisão RAG + agente, e perfil de aluno)
+
+### 📌 Status do Projeto
+Rodada grande de revisão do `rag/` e do `agent/`, fechando várias pendências antigas do log, mais uma feature nova: **perfil de aprendizagem por aluno, persistido entre sessões**.
+
+#### Ingestão de PDF mais robusta (`rag/`)
+- **Um PDF ruim não derruba mais o build da KB.** `rag/loader.load_documents` agora abre cada PDF num `try/except` próprio (novo `load_pdf`) e devolve `(documents, failed_files)` — um arquivo criptografado/corrompido/de zero páginas é pulado e reportado, não aborta tudo. `create_and_save_knowledge_base` propaga isso (grava `failed_files` no `metadata.json` e no `stats`, levanta `ValueError` clara se *nada* carregou); `app.py` embrulhou a chamada num `try/except` que mostra o erro pro professor em vez de stack trace, e lista os arquivos que ficaram de fora.
+- `load_knowledge_base` / `list_knowledge_bases` ganharam guarda de diretório ausente (antes `iterdir()` quebrava se `data/knowledge_bases/` não existisse).
+- `detect_pdf_type` passou a **votar sobre as primeiras 5 páginas** (proporção da página) em vez de confiar só na página 1 — capa retrato antes de slides paisagem (ou apostila escaneada em paisagem) não é mais classificada errado.
+
+#### Parsing de PDF (`rag/parser.py`, `rag/splitter.py`)
+- **Detecção de seção menos frágil.** `SECTION_REGEX` agora aceita duas formas: `13.1<2+ espaços>Título` (como antes) **e** `13.1<1 espaço>Título<fim de linha>` — títulos de seção com um espaço só, desde que ocupem a linha inteira (o *anchor* de fim de linha mantém fechado o bug do rodapé "2\nNota que…" virar seção). Novo `drop_toc_duplicates`: quando um número de seção aparece 2×+ com um dos trechos quase vazio (sumário), fica só o do corpo. Verificado byte-a-byte que os 4 PDFs SAIA atuais não mudam.
+- `extract_document_title` pula linhas-lixo (número de página solto, data, régua) e pega a primeira linha que parece um título — antes ia sempre a primeira linha não vazia, e isso vazava pro header de todo chunk.
+- `split_large_block` interpola o número de página por pedaço (via `start_index` do splitter) em vez de carimbar todos com a faixa inteira do bloco — só afeta parágrafos > 1000 tokens.
+
+#### Pipeline do agente — grading + evidência num passo só
+- `grade_documents` + `extract_evidence` viraram **um nó, `assess_documents`**: uma chamada de LLM por chunk (batch) que pontua relevância **e** extrai evidência de uma vez, cortando ~metade das chamadas de LLM por turno com retrieval. `GradeDocument` + `EVIDENCE_PROMPT` + `GRADE_PROMPT` → `ChunkAssessment` + `ASSESS_PROMPT`. Grafo passou de 6 pra 5 nós. Mantidos: thresholds (≥0.5, fallback top-3 ≥0.2), numeração `DOC_n`, alinhamento `retrieved_docs[i] ↔ evidence[i]` (usado por `generate_answer`, pelo linkify de citação do Chainlit e pelo `record_turn`).
+- **Fecha a pendência "paralelizar/batchar grading e extração de evidência" (desde 08-17).**
+
+#### Pipeline do agente — bugs e robustez
+- **Caminho sem retrieval quebrava.** `route_after_planning` pode ir direto de `planning` pra `generate_answer`, mas `generate_answer` lia `state["evidence"]`, que o langgraph **não** inicializa (o default do campo no `TutorState` — um TypedDict — é ignorado). `KeyError` no primeiro turno, ou evidência/citações do turno anterior vazando num turno sem retrieval. Corrigido: `plan_instruction` reseta `evidence`/`retrieved_docs` no caminho sem retrieval; `generate_answer` lê via `.get`.
+- Timeout + retry em todas as chamadas de LLM (`agent/chat_pipeline._chat`, `MODEL_TIMEOUT`/`MODEL_MAX_RETRIES`) — o grafo roda numa worker thread, uma chamada travada bloqueava o turno do aluno sem teto. Guardas de `None` no output estruturado (tracking cai pro estado anterior, planning cai pra um plano guided default, assess descarta o chunk). `on_message` embrulhado em `try/except` (mensagem de "tenta de novo" em vez de erro cru); `main.py` idem.
+- `update_tracking` agora janela a conversa em `[-TRACKING_WINDOW:]` (12) — antes mandava o histórico inteiro toda vez, enquanto planning/generation já janelavam. **Fecha "resumo com perda / histórico crescente".** (A ideia de um nó de sumarização foi discutida e adiada.)
+- `build_conversation_transcript` pula o system prompt (`messages[0]`) — antes ele entrava como um "turn" de "tutor" e os modelos de tracking/planning liam o prompt inteiro como diálogo.
+
+#### Pipeline do agente — pedagogia e limpeza
+- `TRACKING_PROMPT` ganhou rubrica pra `learning_progress`, `current_difficulty` e `open_question` — o `learning_progress` guia todo o ritmo em `teaching.py` e não estava nem listado no "WHAT TO TRACK".
+- `intent = "practice"` não força mais resposta direta (`DIRECT_INTENTS = {"exam_prep"}` só). Aluno que quer exercício agora segue o arco guiado e o planner escolhe `exercise_first`/`hint_only`.
+- `answer_plan.strategy` finalmente tem efeito mecânico: `resolve_teaching_instructions` faz `exercise_first`/`hint_only` **substituírem** o bloco de instrução do estágio (a resposta vira um problema ou uma dica), e `step_by_step` anexa uma nota de formatação. Antes os três só existiam como texto solto no prompt.
+- Decorator `@node(label)` no lugar do boilerplate de timing repetido em todo nó; helper `latest_student_question`; `generate_answer` deixou de despejar `needs_retrieval`/`confidence` (campos de roteamento) no prompt; `build_graph` retorna `CompiledStateGraph` e só desenha o grafo em `DEBUG`; removido `try/except` inútil em `chat_pipeline`.
+
+#### Feature: perfil de aprendizagem por aluno (entre sessões)
+Substitui o `StudentProfile` inerte (ver limitação de 08-31 — a coluna `studentProfile` era sempre `"neutral"`).
+
+- **Campos** (`agent/state.StudentProfile`, refatorado): `explanation_style`, `responds_to_guiding_questions`, `frustration_tendency`, `solid_topics` / `shaky_topics`, `tutor_note` (2-3 frases pro tutor — o campo que o prompt de fato lê), e `sessions_observed` / `confidence` / `last_updated` geridos pelo sistema. Os contadores crus antigos (`asks_exercise` etc.) saíram.
+- **Persistência** (`utils/student_profile.py`): SQLite dedicado `data/chats/student_profiles.db`, no mesmo volume, **indexado por matrícula**. Diferente do `metrics.db`, este **é identificável** — inerente à personalização; guarda só traços de estilo + a nota, nunca transcrições.
+- **Cadência — uma atualização por sessão, "opção A" (catch-up no início).** Em `on_chat_start`, `_load_or_refresh_profile` carrega o perfil salvo e, se a conversa anterior do aluno ainda não foi perfilada (`thread_id != last_profiled_thread`), roda o profiler sobre ela e persiste. Uma chamada de LLM por sessão, sobre a conversa *anterior* — não depende do `on_chat_end` disparar (que no Chainlit é *best-effort*). Espera até 12s; se o profiler demorar mais, a sessão segue com o perfil salvo e o refresh termina/salva em background pra próxima vez. O perfil fica "uma sessão atrasado" — sessão N reflete tudo até N-1. Toda falha degrada em silêncio pro perfil salvo/default.
+- **Profiler** (`agent/profiler.py`): `profile_student(previous, transcript, model)` — uma chamada estruturada que mescla a transcrição no perfil (`PROFILER_PROMPT`: atualizar-não-reconstruir, não *overfittar* uma sessão). `sessions_observed`/`confidence`/`last_updated` setados no código, não pelo modelo. `PROFILER_MODEL` (default `gpt-4.1-mini`).
+- **Onde adapta o bot:**
+  - `generate_answer`: `render_student_profile` injeta `tutor_note` + estilo + tópicos sólidos/difíceis num bloco `{student_profile}` do `GENERATE_PROMPT` ("molda a entrega, nunca sobrepõe o material ou o plano").
+  - `advance_teaching_state` (com guarda de `confidence ≥ 0.4`): `frustration_tendency == "high"` baixa o *threshold* de escape de 0.6 → 0.45; `responds_to_guiding_questions == "poorly"` pula o passo de *nudge* ("check") e vai direto pra explicação.
+- `on_chat_resume` restaura o perfil (do store), mas não dispara refresh. `main.py` continua com perfil vazio (sem persistência na CLI).
+- `record_turn` passou a gravar `explanation_style` na coluna `studentProfile` (era `current_profile`, que não existe mais).
+
+### ⚠️ Limitações/trade-offs desta rodada
+- Perfil "uma sessão atrasado" e **não sobrevive ao resume propriamente** no sentido de conteúdo da sessão em curso — só o que já foi perfilado. Aceito (traço lento). Sessão N não enxerga a sessão N-2 se o catch-up de N-1 estiver pendente até N.
+- `responds_to_guiding_questions`/`frustration_tendency` mudam o ritmo pedagógico de fato agora — se o profiler super-classificar, alunos podem receber respostas diretas onde antes recebiam o arco guiado. Vale acompanhar nas primeiras sessões reais.
+- `strategy` (`exercise_first`/`hint_only`) tem dente agora: se o planner abusar, o aluno ganha problema/dica onde ganhava explicação. Idem, acompanhar.
+- `drop_toc_duplicates` só remove duplicata com corpo < 150 chars — some se um documento tiver numeração de seção que reinicia por capítulo com corpo real nas duas ocorrências (não é o caso dos PDFs atuais, que são um arquivo por capítulo).
+- Sumarização de conversa longa foi discutida (nó dedicado com `RemoveMessage`) e **adiada** — o cap de janela no `update_tracking` já resolve o custo imediato; um resumo verdadeiro tem risco em cima do arco guiado (perder a pergunta socrática pendente).
+- `main.py` ainda hardcoded pra "Software Architecture" (pendência desde 08-17).
+
+### 🔜 Próximos Passos (revisão)
+- Acompanhar em uso real: o profiler está classificando bem? O ritmo adaptado ajuda ou atrapalha?
+- Nó de sumarização de histórico, se sessões longas passarem a doer de verdade.
+- Mecanismo de avaliação da qualidade pedagógica da resposta (ainda pendente desde 08-17).
+- Atualizar `main.py` para o padrão multi-KB (ainda pendente desde 08-17).
+- Suíte de testes automatizada (só testes ad-hoc via stub por enquanto).

@@ -82,9 +82,11 @@ docker run -d \
 - The `-v` volume must be mounted at `/app/data/chats` specifically, not
   `/app/data` — the latter would shadow the baked-in
   `data/knowledge_bases/` and `data/roster.txt` behind an empty volume on
-  first boot. It holds the student app's `chainlit.db` (chat
-  history/thread sidebar) — without it, every restart wipes all
-  conversations.
+  first boot. It holds three SQLite files, all created on first boot:
+  `chainlit.db` (chat history / thread sidebar), `metrics.db` (anonymous
+  per-turn metrics), and `student_profiles.db` (per-student learning
+  profile, keyed by enrollment ID). Without the volume, every restart
+  wipes all of them.
 - The app comes up at `http://localhost:8501` (or whatever host/port
   you're forwarding to).
 
@@ -107,7 +109,9 @@ single source of truth for what to exclude (it already drops `venv/`,
 The volume must be mounted at `/app/data/chats` (same reasoning as the
 `-v` note above). `OPENAI_API_KEY` and `CHAINLIT_AUTH_SECRET` are set as
 service variables in the Railway dashboard, not passed on the command
-line.
+line. The model/timeout knobs (`GENERATION_MODEL`, `PROFILER_MODEL`,
+`MODEL_TIMEOUT`, …) are optional service variables — see
+`.env.example`/README for defaults.
 
 ## Multiple courses
 
@@ -136,6 +140,15 @@ The file is created on first boot and lives on the volume, so it survives
 redeploys and restarts. It is **not** in the container image — only the
 code that writes it is. Pull the file whenever you want to look, then
 open it in the local app.
+
+The same volume also holds `student_profiles.db` — the per-student
+learning profile the tutor uses to personalize itself. Unlike
+`metrics.db`, this one **is** identifiable (keyed by enrollment ID); it
+stores only slow-moving learning-style traits and a short free-text note,
+never transcripts. It's refreshed once per session by a model that reads
+the student's previous conversation. There's no viewer for it — pull it
+with `railway volume files ... download /student_profiles.db ...` if you
+need to inspect or reset it.
 
 **Easiest — the helper script.** From the repo root, with the Railway
 project linked (`railway status` should show the `langchain-rag`
