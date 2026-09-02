@@ -59,6 +59,14 @@ def load_pipeline(discipline_name: str):
     # Model Configuration
     # --------------------------------------------------
     model_temperature = float(os.getenv("MODEL_TEMPERATURE", 0))
+
+    # The graph runs synchronously inside a worker thread (see
+    # chainlit_app._run_graph_sync), so a call with no timeout would block
+    # that student's whole turn indefinitely on a network stall. Bound it
+    # and let a couple of retries absorb transient failures.
+    request_timeout = float(os.getenv("MODEL_TIMEOUT", 30))
+    max_retries = int(os.getenv("MODEL_MAX_RETRIES", 2))
+
     model_names = {
         "generation": os.getenv("GENERATION_MODEL", "gpt-4o-mini"),
         "tracking": os.getenv("TRACKING_MODEL", "gpt-4.1-nano"),
@@ -68,26 +76,19 @@ def load_pipeline(discipline_name: str):
 
     logger.info("Using models: %s", model_names)
 
-    models = ModelRegistry(
-        generation_llm=ChatOpenAI(
-            model=model_names["generation"],
-            temperature=model_temperature
-        ),
-
-        tracking_llm=ChatOpenAI(
-            model=model_names["tracking"],
-            temperature=model_temperature
-        ),
-
-        planning_llm=ChatOpenAI(
-            model=model_names["planning"],
-            temperature=model_temperature
-        ),
-
-        grading_llm=ChatOpenAI(
-            model=model_names["grading"],
-            temperature=model_temperature
+    def _chat(model_name: str) -> ChatOpenAI:
+        return ChatOpenAI(
+            model=model_name,
+            temperature=model_temperature,
+            timeout=request_timeout,
+            max_retries=max_retries,
         )
+
+    models = ModelRegistry(
+        generation_llm=_chat(model_names["generation"]),
+        tracking_llm=_chat(model_names["tracking"]),
+        planning_llm=_chat(model_names["planning"]),
+        grading_llm=_chat(model_names["grading"]),
     )
 
     # --------------------------------------------------

@@ -2,7 +2,7 @@ import json
 import re
 import time
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 import agent.prompts as prompts
 from agent.grader import ChunkAssessment
@@ -29,11 +29,22 @@ TRACKING_WINDOW = 12
 
 def build_conversation_transcript(messages) -> str:
     """
-    Renders messages as a clean {turn, role, content} transcript for LLM
-    prompts, instead of interpolating raw BaseMessage objects (which
-    stringify with noisy internals like ids/additional_kwargs/
-    response_metadata and waste tokens).
+    Renders the student/tutor exchange as a clean {turn, role, content}
+    transcript for LLM prompts, instead of interpolating raw BaseMessage
+    objects (which stringify with noisy internals like ids/
+    additional_kwargs/response_metadata and waste tokens).
+
+    Only HumanMessage / AIMessage are included: the tutor's own system
+    prompt lives at messages[0], and rendering it here would show up as a
+    "tutor" turn - the tracking and planning models would then read the
+    entire system prompt back as if it were dialogue.
     """
+
+    exchange = [
+        msg
+        for msg in messages
+        if isinstance(msg, (HumanMessage, AIMessage))
+    ]
 
     conversation = [
         {
@@ -41,7 +52,7 @@ def build_conversation_transcript(messages) -> str:
             "role": "student" if isinstance(msg, HumanMessage) else "tutor",
             "content": msg.content,
         }
-        for i, msg in enumerate(messages)
+        for i, msg in enumerate(exchange)
     ]
 
     return json.dumps(conversation, indent=2, ensure_ascii=False)
@@ -100,6 +111,13 @@ Recent conversation:
 
     new_learning_state = structured_llm.invoke(prompt)
 
+    if new_learning_state is None:
+        # Structured parse failed. Tracking is advisory and the prompt
+        # treats the previous state as baseline truth anyway, so carry it
+        # forward rather than crashing the turn.
+        print("[TRACKING NODE] No structured output; keeping previous state.")
+        new_learning_state = previous_state or LearningState()
+
     end_time = time.perf_counter()
     execution_time = end_time - start_time
     print(f"[TRACKING NODE] Execution time: {execution_time:.2f} seconds")
@@ -150,6 +168,17 @@ Recent conversation:
     structured_model = model.with_structured_output(AnswerPlan)
 
     answer_plan = structured_model.invoke(prompt)
+
+    if answer_plan is None:
+        # Structured parse failed - fall back to guided teaching with
+        # retrieval, the system's default pacing, rather than crashing the
+        # turn (route_after_planning would hit .needs_retrieval on None).
+        print("[PLANNING NODE] No structured output; using default plan.")
+        answer_plan = AnswerPlan(
+            needs_retrieval=True,
+            strategy="guided_teaching",
+            rationale="planner returned no structured output; defaulted to guided teaching",
+        )
 
     # The only planning-time override of the deterministic pacing: the LLM
     # judged the student explicitly wants directness even though the
@@ -305,8 +334,14 @@ Retrieved chunk:
 
     results: list[ChunkAssessment] = assessor.batch(inputs)
 
+    # A chunk whose structured assessment failed to parse comes back as
+    # None - drop it rather than let .relevance_score blow up the turn.
     scored_docs = sorted(
-        zip(retrieved_docs, results),
+        (
+            (doc, assessment)
+            for doc, assessment in zip(retrieved_docs, results)
+            if assessment is not None
+        ),
         key=lambda pair: pair[1].relevance_score,
         reverse=True,
     )

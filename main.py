@@ -37,8 +37,13 @@ if __name__ == "__main__":
 
         final_state = None
 
-        for state in graph.stream(conversation_state, stream_mode="values"):  # type: ignore
-            final_state = state
+        try:
+            for state in graph.stream(conversation_state, stream_mode="values"):  # type: ignore
+                final_state = state
+        except Exception as exc:  # noqa: BLE001 - keep the REPL alive
+            print(f"\n[erro ao processar a pergunta] {exc}\n")
+            conversation_state["messages"].pop()
+            continue
 
         conversation_state = final_state
 

@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -21,6 +22,8 @@ from utils.helpers import is_enrolled, load_roster
 from utils.metrics import ensure_metrics_schema, record_turn
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ---------------- SINGLE BAKED-IN COURSE ----------------
 # One knowledge base ships per container - no discipline picker. Unlike
@@ -368,8 +371,21 @@ async def on_message(message: cl.Message):
 
     state["messages"].append(HumanMessage(content=message.content))
 
-    async with cl.Step(name="Pensando...", type="run"):
-        final_state = await asyncio.to_thread(_run_graph_sync, graph, state)
+    try:
+        async with cl.Step(name="Pensando...", type="run"):
+            final_state = await asyncio.to_thread(_run_graph_sync, graph, state)
+    except Exception:
+        logger.exception("Graph execution failed for a turn")
+        # Drop the unanswered question so the student's retry starts clean.
+        if state["messages"] and isinstance(state["messages"][-1], HumanMessage):
+            state["messages"].pop()
+        await cl.Message(
+            content=(
+                "Desculpe, tive um problema para processar sua pergunta agora. "
+                "Pode tentar de novo?"
+            )
+        ).send()
+        return
 
     cl.user_session.set("state", final_state)
 
