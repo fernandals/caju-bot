@@ -17,6 +17,12 @@ PROFILE_CONFIDENCE_FLOOR = 0.4
 # the planning node picks an exercise_first / hint_only strategy.
 DIRECT_INTENTS = {"exam_prep"}
 
+# How many consecutive guided turns (the "introduce" turn plus "check"
+# nudges) to spend on one topic before conceding to a full explanation.
+# While the student stays engaged and unfrustrated the arc loops in
+# "check"; this is the ceiling on that loop.
+GUIDED_TURN_CAP = 5
+
 
 def _frustration_threshold(profile: StudentProfile | None) -> float:
     if (
@@ -48,8 +54,11 @@ def advance_teaching_state(
     infers every turn (comprehension_level, learning_progress,
     frustration_level, intent) instead of asking a model to judge pacing.
 
-    Policy (see plan): guided-first with escape valves, and at most one
-    nudge before conceding and giving the full explanation.
+    Policy (see plan): guided-first with escape valves. While the student
+    stays engaged and unfrustrated, the arc loops in "check" asking fresh
+    guiding questions; it concedes to a full explanation only when the
+    student is stuck, the guided turn cap is hit, or an escape valve fires
+    (frustration / exam_prep).
 
     `student_profile` (loaded once per session, never mutated here) tunes
     two things when it is confident enough: a frustration-prone student
@@ -76,36 +85,52 @@ def advance_teaching_state(
         )
 
     if previous.stage in ("introduce", "check"):
-        # The student's reply to the guiding question (asked during
-        # "introduce", or re-asked during a "check" nudge) is what just
+        # The student's reply to the last guiding question is what just
         # updated `learning_state` in the tracking node this same turn, so
-        # it already reflects how well they engaged with THIS reply -
-        # evaluate it now rather than always spending one turn in "check"
-        # regardless of quality.
-        strong_engagement = (
-            learning_state.learning_progress in ("improving", "mastered")
-            or learning_state.comprehension_level == "high"
+        # it already reflects how well they engaged with THIS reply.
+
+        # They've demonstrated the concept back -> recap and move on.
+        if learning_state.learning_progress == "mastered":
+            return previous.model_copy(
+                update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0}
+            )
+
+        guided_turns = previous.turns_in_stage + 1
+
+        # `stuck` concedes to the full explanation - but NOT on the
+        # student's first reply within the arc. The tracker (a small model)
+        # over-labels "stuck"/"low" early, before there is real evidence of
+        # repeated struggle, and one premature "stuck" should not collapse
+        # the whole guided arc. Give at least one guiding nudge first; if
+        # they really are stuck the label persists (and frustration
+        # typically rises, tripping the escape valve above).
+        stuck_after_a_nudge = (
+            learning_state.learning_progress == "stuck" and guided_turns >= 2
         )
 
-        no_engagement_or_already_nudged = (
-            learning_state.learning_progress == "stuck"
-            or previous.turns_in_stage >= 1
-            # This student doesn't benefit from a second guiding question -
-            # move to the explanation instead of nudging.
+        # Concede to the full explanation only when guiding has genuinely
+        # stalled, has gone on longer than is productive, or this student
+        # is known not to benefit from guiding questions. A student who is
+        # still engaging - even partially - and is not frustrated (the
+        # frustration escape valve above already handled that) keeps being
+        # guided rather than handed the answer.
+        concede = (
+            stuck_after_a_nudge
+            or guided_turns >= GUIDED_TURN_CAP
             or _guiding_questions_ineffective(student_profile)
         )
 
-        if strong_engagement or no_engagement_or_already_nudged:
+        if concede:
             return previous.model_copy(
                 update={"mode": "guided", "stage": "deepen", "turns_in_stage": 0}
             )
 
-        # Partial engagement, first miss: one nudge allowed.
+        # Still engaged, not there yet -> ask the next guiding question.
         return previous.model_copy(
             update={
                 "mode": "guided",
                 "stage": "check",
-                "turns_in_stage": previous.turns_in_stage + 1,
+                "turns_in_stage": guided_turns,
             }
         )
 

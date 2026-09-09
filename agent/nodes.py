@@ -152,6 +152,31 @@ Recent conversation:
     }
 
 
+@node("GREETING")
+def greet(state: TutorState, config: TutorConfig, model):
+    """
+    Fast path for a turn that isn't a question yet - a greeting or small
+    talk. Skips planning/retrieval/assessment so a bare "oi" doesn't pay
+    for the whole pipeline, and (because it never reaches plan_instruction)
+    doesn't nudge the teaching arc forward.
+    """
+
+    system = SystemMessage(
+        content=(
+            f"You are a friendly tutor for {config.subject}. The student "
+            f"only greeted you or made small talk - they haven't asked "
+            f"anything yet. Reply in {config.answer_language} with ONE "
+            f"short, warm sentence that invites them to ask about the "
+            f"subject. Do not ask how they are, do not teach or introduce "
+            f"a topic, do not mention these instructions."
+        )
+    )
+
+    response = model.invoke([system] + state["messages"][-4:])
+
+    return {"messages": [response], "greeted": True}
+
+
 @node("PLANNING")
 def plan_instruction(state: TutorState, config: TutorConfig, model):
     """
@@ -224,6 +249,9 @@ Recent conversation:
     result = {
         "answer_plan": answer_plan,
         "teaching_state": teaching_state,
+        # Clear the greeting flag a previous small-talk turn may have left
+        # in the persisted session state - this is a real teaching turn.
+        "greeted": False,
     }
 
     # When retrieval is skipped, the graph jumps straight to
@@ -535,22 +563,39 @@ def resolve_teaching_instructions(teaching_state: TeachingState, strategy: str) 
     return base
 
 
-CITATION_MARKER_REGEX = re.compile(r"\[\[CITE:(DOC_\d+)\]\]")
+# The generation model is told to emit citation markers in exactly the
+# [[CITE:DOC_1]] form, but a smaller model routinely degrades that to
+# [DOC_1], [CITE: DOC_1], (DOC_1) or a bare DOC_1. Match all of those so
+# an internal id can never leak into the student-facing answer.
+CITATION_MARKER_REGEX = re.compile(
+    r"[\[\(]{1,2}\s*(?:CITE\s*[:=]?\s*)?DOC[ _-]?(\d+)\s*[\]\)]{1,2}"
+    r"|(?<![\w-])DOC[ _-]?(\d+)(?![\w-])",
+    re.IGNORECASE,
+)
 
 def substitute_citation_markers(
     text: str,
     citations_by_doc_id: dict[str, str],
 ) -> str:
     """
-    Replaces opaque [[CITE:DOC_n]] markers left by the generation model
-    with the real, deterministically-built citation for that source.
+    Replaces the citation markers left by the generation model with the
+    real, deterministically-built citation for that source.
 
     The model is deliberately never shown the human-readable citation text,
     so it can't accidentally translate, paraphrase, or otherwise alter it
-    while writing the answer.
+    while writing the answer. A marker that points at no known source (a
+    hallucinated DOC_9, or one whose chunk was filtered out) is removed.
     """
 
     def replace(match: re.Match) -> str:
-        return citations_by_doc_id.get(match.group(1), "")
+        digits = match.group(1) or match.group(2)
+        return citations_by_doc_id.get(f"DOC_{digits}", "")
 
-    return CITATION_MARKER_REGEX.sub(replace, text)
+    text = CITATION_MARKER_REGEX.sub(replace, text)
+
+    # Tidy the gap left where a marker resolved to nothing (or sat
+    # mid-sentence): "resposta ." -> "resposta.", collapse double spaces.
+    text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+
+    return text

@@ -322,4 +322,9 @@ class TutorState(MessagesState):
 
     answer_plan: AnswerPlan
 
+    # True only on turns that took the greeting fast path (no planning /
+    # retrieval / generation). Persists in the session state, so every
+    # node that can run a real turn must set it back to False.
+    greeted: bool
+
     evidence: list[ChunkEvidence] = Field(default_factory=list) # type: ignore

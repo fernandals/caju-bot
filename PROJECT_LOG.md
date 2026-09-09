@@ -254,4 +254,107 @@ Substitui o `StudentProfile` inerte (ver limitação de 08-31 — a coluna `stud
 - Nó de sumarização de histórico, se sessões longas passarem a doer de verdade.
 - Mecanismo de avaliação da qualidade pedagógica da resposta (ainda pendente desde 08-17).
 - Atualizar `main.py` para o padrão multi-KB (ainda pendente desde 08-17).
-- Suíte de testes automatizada (só testes ad-hoc via stub por enquanto).
+
+---
+
+## 📅 Data
+- **2026-09-09** (o arco guiado não estava guiando de verdade)
+
+### 📌 Status do Projeto
+Reclamação da Fernanda: mesmo "guiado", o tutor entregava a explicação completa
+cedo demais — na 1ª pergunta, ou logo depois, e sempre com uma pergunta vaga
+pendurada no fim. Depois de ~6 iterações de ajuste (quase tudo em `prompts.py`)
+o comportamento aprovado é: **turno 1 = só uma pergunta, sem nenhuma definição;
+os turnos seguintes confirmam/corrigem o que o aluno raciocina e avançam um
+sub-passo; a explicação completa só sai quando o aluno trava, se frustra, ou
+pede.** A máquina de estados (`agent/teaching.py`) decide *quando* isso acontece;
+os blocos de estágio em `prompts.py` dizem *o que* fazer em cada ponto.
+
+### O que mudou
+
+**`agent/teaching.py` — `advance_teaching_state`**
+- O arco não corre mais pro `deepen`. Enquanto o aluno engaja e **não** está
+  frustrado/`stuck`, fica em `check` fazendo novas perguntas, até
+  `GUIDED_TURN_CAP` (5) turnos guiados.
+- Concede pro `deepen` só em: `stuck` **a partir do 2º turno guiado** (o tracker
+  super-rotula "stuck"/"low" no 1º), teto de turnos, ou perfil
+  `responds_to_guiding_questions == "poorly"`. `mastered` → `wrap_up`.
+- Válvulas de escape do topo (frustração > limiar, `intent == exam_prep`)
+  inalteradas.
+
+**`agent/prompts.py` (grosso das mudanças)**
+- `GENERATE_PROMPT` reescrito: `## Your role` agora descreve o loop
+  pergunta→resposta explícito (aluno diz algo → tutor devolve UMA pergunta e
+  **espera resposta** → confirma/corrige, ou, se o aluno não sabe/reclama/
+  re-pergunta, **dá a resposta completa, sem drama**). `## How the pieces fit
+  together` (estágio manda em *quanto* revelar; plano só ajusta profundidade/
+  exemplos *dentro* disso). `## Guiding questions` (uma só; tem que ter resposta
+  conferível — "sim, exato" / "não é bem assim"; nada de reflexão aberta; 3
+  tipos de pista agnósticos de curso — nome do conceito, intuição do dia a dia,
+  consequência do que já foi dito; frasear pedindo que responda).
+- `introduce`: **nenhuma** definição/propriedade/mecanismo — a resposta inteira
+  é praticamente a pergunta. Exceção rara: nome totalmente opaco → 1 frase de
+  orientação aterrada.
+- `check`: CASO A (aluno tentou) → confirma/corrige em 1-2 frases + próxima
+  pergunta. CASO B (aluno não tentou, fez outra pergunta) → **não explicar** —
+  reconhecer e devolver como pergunta.
+- `deepen`: enquadrado como concessão — resposta completa, sem pergunta no fim,
+  sem fazer o aluno se sentir mal.
+- `SYSTEM_PROMPT`: limite de frases afrouxado pra não brigar com o `deepen`.
+- `TRACKING_PROMPT`: "stuck" exige struggle repetido visível (não a 1ª
+  mensagem); re-perguntar a mesma coisa **é** stuck; impaciência ("ok mas", "tá
+  mas", "só me diz") sobe `frustration_level`; só perguntar não é comprehension
+  "low".
+
+**`agent/graph.py` + `agent/nodes.py` — fast-path de saudação**
+- Nó `greet` novo: turno sem `topic`/`open_question`/`current_difficulty` e que
+  casa `_SMALLTALK_RE` (saudação/agradecimento/despedida pura) responde com 1
+  frase e **não** passa por planning/retrieval/geração — não paga o pipeline
+  nem cutuca o arco. Default do roteador é `planning` (pedido curto mal parseado
+  não vira saudação por engano).
+- `greet` retorna `greeted: True`; `plan_instruction` retorna `greeted: False`;
+  `chainlit_app.on_message` só grava métrica quando `not greeted` (turno de
+  saudação não é pedagógico e não suja os agregados do professor).
+
+**`agent/nodes.py` — robustez de citação**
+- `substitute_citation_markers`: regex tolerante — casa `[[CITE:DOC_1]]`,
+  `[DOC_1]`, `[CITE: DOC_1]`, `(DOC_1)`, `DOC-1`, `DOC_1` solto. Id
+  alucinado/desconhecido → string vazia. Corrige o bug de `[DOC_1]` cru
+  vazando pro aluno.
+- `GENERATE_PROMPT`: marcador repetido aparece só 1x no fim do parágrafo.
+
+Nota: `[SAIA-Chapter14.pdf, …, Pages 3-4]` por extenso numa resposta **não é
+leak** — é o fallback de render quando a citação não vira chip de PDF.
+
+### ⚠️ Limitações / trade-offs
+- `GUIDED_TURN_CAP = 5` e o gate de `stuck` no 2º turno são chutes — calibrar
+  com uso real.
+- Geração ainda é `gpt-4o-mini`; os prompts dependem de exemplos concretos e
+  limites duros. Considerar `gpt-4.1-mini`.
+- Regex de citação tolerante poderia, em tese, casar um "DOC_1" digitado pelo
+  próprio aluno — improvável no domínio.
+
+#### Limpeza de inconsistências nos prompts (sem mudar comportamento)
+- `TRACKING_PROMPT`: removida a linha `confidence` de WHAT TO TRACK
+  (`LearningState` não tem o campo — a saída estruturada já descartava).
+- `PLANNING_PROMPT` INPUTS: `student question` + `course configuration` →
+  `recent conversation` (o que `plan_instruction` de fato passa). DEPTH RULES:
+  removido "and course_level" (o planner nunca recebe o `config`). STRATEGY
+  RULES: explicitado "introduce/check → nunca `step_by_step`" (evita grudar
+  "numere os passos" num bloco que só quer uma pergunta).
+
+### 🔜 Ainda aberto
+- **`SYSTEM_PROMPT` entra no contexto da geração** via
+  `conversation_window = state["messages"][-8:]` (`messages[0]` é o
+  `SYSTEM_PROMPT`). Duas "vozes de sistema"; hoje coerentes. Se quiser fonte
+  única, filtrar não-Human/AI da janela em `generate_answer` (e no `greet`).
+- `DIRECT_MODE_INSTRUCTIONS` vs `deepen`: dois caminhos de "dar a resposta" com
+  tom levemente diferente (só o `deepen` tem o "não faça o aluno se sentir
+  mal"). Não alinhado de propósito — era mudança de comportamento.
+- `PLANNING_PROMPT` ainda decide `strategy`, mas hoje isso só afeta
+  `direct_answer` / `exercise_first` / `hint_only` / a nota de `step_by_step`;
+  o pacing é do `teaching.py`. Funciona, mas o prompt podia ser encolhido.
+- Se o marcador de citação duplicado persistir mesmo com o ajuste de prompt,
+  fazer dedupe por parágrafo no `substitute_citation_markers`.
+- Suíte de testes automatizada (segue pendente) — `advance_teaching_state`,
+  `route_after_tracking` e `substitute_citation_markers` são alvos óbvios.

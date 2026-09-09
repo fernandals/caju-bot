@@ -481,7 +481,11 @@ async def on_message(message: cl.Message):
 
     # Anonymous metrics: synchronous SQLite write, kept off the shared
     # event loop like _run_graph_sync. Never raises (see record_turn).
-    await asyncio.to_thread(record_turn, final_state, DISCIPLINE)
+    # Skipped for the greeting fast path - a "bom dia" isn't a pedagogical
+    # turn and would only add noise (often stale, from the prior real turn
+    # still in the persisted state) to the professor's aggregates.
+    if not final_state.get("greeted", False):
+        await asyncio.to_thread(record_turn, final_state, DISCIPLINE)
 
     answer = final_state["messages"][-1].content
     answer, elements = _linkify_citations(final_state, answer)
