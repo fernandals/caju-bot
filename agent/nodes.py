@@ -231,20 +231,27 @@ Recent conversation:
 
     # The only planning-time override of the deterministic pacing: the LLM
     # judged the student explicitly wants directness even though the
-    # proposed stage was "guided". Keep topic_anchor/stage intact so a
-    # guided arc can resume next turn if the student re-engages. Gated on
-    # config.allow_direct_answers: when a course wants guidance enforced,
-    # this specific escape hatch is disabled (the frustration/exam_prep
-    # escape valves in advance_teaching_state still apply regardless, since
-    # those are about the student's wellbeing, not about skipping effort).
+    # proposed stage was "guided". Rather than answering directly on the
+    # spot, give it one turn as "refer" - point the student at the source
+    # material instead - and only actually skip to the full explanation if
+    # the deterministic pacing has already reached "deepen"/"wrap_up" (i.e.
+    # the student didn't engage with a prior "refer" nudge, or the guided
+    # arc concluded on its own). Gated on config.allow_direct_answers: when
+    # a course wants guidance enforced, this specific escape hatch is
+    # disabled (the frustration/exam_prep escape valves in
+    # advance_teaching_state still apply regardless, since those are about
+    # the student's wellbeing, not about skipping effort).
     teaching_state = proposed_teaching_state
 
     if (
         answer_plan.strategy == "direct_answer"
         and teaching_state.mode == "guided"
+        and teaching_state.stage not in ("deepen", "wrap_up")
         and config.allow_direct_answers
     ):
-        teaching_state = teaching_state.model_copy(update={"mode": "direct"})
+        teaching_state = teaching_state.model_copy(
+            update={"stage": "refer", "turns_in_stage": 0}
+        )
 
     result = {
         "answer_plan": answer_plan,

@@ -84,6 +84,29 @@ def advance_teaching_state(
             update={"mode": "direct", "stage": "deepen"}
         )
 
+    if previous.stage == "refer":
+        # Last turn we pointed at the material instead of answering
+        # directly (see plan_instruction's direct_answer override). What
+        # the student did with that nudge decides what happens now.
+
+        if learning_state.learning_progress == "mastered":
+            return previous.model_copy(
+                update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0}
+            )
+
+        if learning_state.learning_progress == "improving":
+            # They engaged with the pointer rather than insisting - resume
+            # the guided arc.
+            return previous.model_copy(
+                update={"mode": "guided", "stage": "check", "turns_in_stage": 0}
+            )
+
+        # stable or stuck: they did not engage with the pointer - one nudge
+        # was enough, concede to the full explanation.
+        return previous.model_copy(
+            update={"mode": "guided", "stage": "deepen", "turns_in_stage": 0}
+        )
+
     if previous.stage in ("introduce", "check"):
         # The student's reply to the last guiding question is what just
         # updated `learning_state` in the tracking node this same turn, so

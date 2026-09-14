@@ -170,13 +170,15 @@ class TeachingState(BaseModel):
         )
     )
 
-    stage: Literal["introduce", "check", "deepen", "wrap_up"] = Field(
+    stage: Literal["introduce", "check", "deepen", "wrap_up", "refer"] = Field(
         default="introduce",
         description=(
             "'introduce' = orient briefly, end with one guiding question. "
             "'check' = evaluate the student's reply to that question. "
             "'deepen' = give the full grounded explanation. "
-            "'wrap_up' = brief recap, invite practice or the next topic."
+            "'wrap_up' = brief recap, invite practice or the next topic. "
+            "'refer' = one-turn nudge toward the source material instead of "
+            "answering directly, before conceding to 'deepen'."
         )
     )
 

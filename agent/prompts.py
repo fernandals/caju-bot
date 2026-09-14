@@ -335,8 +335,25 @@ TEACHING_STAGE_INSTRUCTIONS = {
     ),
     "wrap_up": (
         "Briefly recap the key takeaway in 1-2 sentences, grounded in the "
-        "material. Invite the student to try a related exercise or move "
-        "on to the next topic. Keep it short." + _CITATION_REMINDER
+        "material. If the retrieved material below covers more than what "
+        "you just discussed - a fuller chapter, a related section, worked "
+        "examples - point the student to it by its CITE_AS marker so they "
+        "can dig deeper on their own; one pointer is enough, do not list "
+        "every source. If nothing in the material goes beyond what was "
+        "already covered, skip that and just invite them to try a related "
+        "exercise or move on to the next topic. Keep it short."
+        + _CITATION_REMINDER
+    ),
+    "refer": (
+        "The student is asking to skip straight to the answer. Do NOT "
+        "give the explanation yet. Briefly acknowledge what they asked, "
+        "then point them to exactly where it is covered in the material "
+        "- name the source concretely using its CITE_AS marker - and "
+        "invite them to take a quick look and come back with what they "
+        "find. If nothing in the retrieved material covers it, say so "
+        "briefly and ask a short guiding question instead. Keep it to a "
+        "sentence or two - this is a nudge, not a lecture."
+        + _CITATION_REMINDER
     ),
 }
 
