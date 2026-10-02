@@ -37,6 +37,11 @@ _SMALLTALK_RE = re.compile(
 )
 
 
+def is_smalltalk(text: str | None) -> bool:
+    """Whole message is only a greeting / acknowledgement / sign-off."""
+    return bool(text) and bool(_SMALLTALK_RE.match(text.strip()))
+
+
 def route_after_tracking(state: TutorState):
     """
     Skip the full teaching pipeline for a turn that is only a greeting or
@@ -52,9 +57,7 @@ def route_after_tracking(state: TutorState):
     ):
         return "planning"
 
-    question = (latest_student_question(state["messages"]) or "").strip()
-
-    if question and _SMALLTALK_RE.match(question):
+    if is_smalltalk(latest_student_question(state["messages"])):
         return "greet"
 
     return "planning"

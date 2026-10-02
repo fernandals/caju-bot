@@ -6,21 +6,26 @@ import sqlite3
 from pathlib import Path
 
 import chainlit as cl
+from chainlit.data import get_data_layer as _chainlit_data_layer
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.chat_pipeline import load_pipeline
+from agent.nodes import latest_student_question
 from agent.profiler import profile_student
 from agent.state import StudentProfile, TutorState
+from agent.titler import generate_title
 from rag.knowledge_base import (
     describe_course_materials,
     list_knowledge_bases,
     resolve_source_pdf,
 )
+from utils.chat_session import needs_title, truncate_for_edit
 from utils.citations import highlight_citations
 from utils.helpers import is_enrolled, load_roster
 from utils.metrics import ensure_metrics_schema, record_turn
+from utils.quick_replies import ACTION_NAME, STARTERS, QuickReply, quick_replies_for
 from utils.student_profile import (
     ensure_profile_schema,
     latest_other_thread,
@@ -349,9 +354,17 @@ async def on_chat_start():
     nome = (user.metadata or {}).get("name") if user else None
     greeting = f"Olá, {nome}! " if nome else "Olá! "
 
-    await cl.Message(
-        content=f"{greeting}Tire suas dúvidas sobre **{DISCIPLINE}**."
-    ).send()
+    # Ready-made starters ride on the greeting itself: Chainlit's own
+    # @cl.set_starters only renders while the thread has no messages, and
+    # this greeting is a message.
+    welcome = cl.Message(
+        content=f"{greeting}Tire suas dúvidas sobre **{DISCIPLINE}**.",
+        actions=_actions(STARTERS),
+    )
+    await welcome.send()
+
+    cl.user_session.set("buttons_message", welcome)
+    cl.user_session.set("titled", False)
 
 
 @cl.on_chat_resume
@@ -369,10 +382,12 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
     messages = [tutor_prompt]
 
     for step in thread.get("steps", []):
+        # Keep the Chainlit step id on each message: an edit of a resumed
+        # message arrives with that id (see truncate_for_edit).
         if step.get("type") == "user_message":
-            messages.append(HumanMessage(content=step.get("output", "")))
+            messages.append(HumanMessage(content=step.get("output", ""), id=step.get("id")))
         elif step.get("type") == "assistant_message":
-            messages.append(AIMessage(content=step.get("output", "")))
+            messages.append(AIMessage(content=step.get("output", ""), id=step.get("id")))
 
     matricula = _current_matricula()
     profile = (
@@ -386,6 +401,10 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
         "state",
         TutorState(messages=messages, student_profile=profile),  # type: ignore
     )
+
+    # Threads from before smart titles (or opened with a greeting / a
+    # button click) still carry a useless name - retitle on the next turn.
+    cl.user_session.set("titled", not needs_title(thread.get("name")))
 
 
 def _short_ref_label(metadata: dict) -> str:
@@ -454,43 +473,145 @@ def _linkify_citations(final_state, answer: str):
     return answer, elements
 
 
+# ---------------- QUICK REPLIES ----------------
+def _actions(replies: list[QuickReply]) -> list[cl.Action]:
+    return [
+        cl.Action(
+            name=ACTION_NAME,
+            payload={"message": r.message},
+            label=r.label,
+            icon=r.icon,
+        )
+        for r in replies
+    ]
+
+
+async def _clear_previous_buttons():
+    """Buttons only make sense under the latest tutor message."""
+    previous = cl.user_session.get("buttons_message")
+    cl.user_session.set("buttons_message", None)
+
+    if previous is not None:
+        try:
+            await previous.remove_actions()
+        except Exception:  # noqa: BLE001 - cosmetic; message may be gone (edit)
+            pass
+
+
+@cl.action_callback(ACTION_NAME)
+async def on_quick_reply(action: cl.Action):
+    """A button click is posted as the student's own message and answered."""
+    if cl.user_session.get("busy"):
+        return  # double click while the previous turn is still running
+
+    user = cl.user_session.get("user")
+    message = cl.Message(
+        content=action.payload.get("message", action.label),
+        type="user_message",
+        author=user.identifier if user else "Aluno",
+    )
+    await message.send()
+
+    # Same "task running" UI state a typed message gets (input disabled,
+    # stop button) - an action call doesn't set it on its own.
+    await cl.context.emitter.task_start()
+    try:
+        await on_message(message)
+    finally:
+        await cl.context.emitter.task_end()
+
+
+# ---------------- THREAD TITLE ----------------
+async def _set_thread_title(final_state):
+    """Background task: summarize the first real question into the title."""
+    thread_id = _safe_thread_id()
+    data_layer = _chainlit_data_layer()
+
+    if not thread_id or data_layer is None:
+        return
+
+    question = latest_student_question(final_state["messages"])
+    learning_state = final_state.get("learning_state")
+    topic = " / ".join(
+        t for t in (learning_state.topic, learning_state.subtopic) if t
+    ) if learning_state else None
+
+    title = await asyncio.to_thread(generate_title, question or "", topic)
+
+    if not title:
+        return
+
+    try:
+        await data_layer.update_thread(thread_id=thread_id, name=title)
+        # The sidebar re-fetches the thread list whenever this value
+        # changes - re-emitting it with the new title refreshes it live.
+        await cl.context.emitter.emit(
+            "first_interaction", {"interaction": title, "thread_id": thread_id}
+        )
+    except Exception:  # noqa: BLE001 - a title is cosmetic
+        logger.warning("Could not update thread title", exc_info=True)
+
+
+# ---------------- TURN ----------------
 @cl.on_message
 async def on_message(message: cl.Message):
     graph = cl.user_session.get("graph")
     state = cl.user_session.get("state")
 
-    state["messages"].append(HumanMessage(content=message.content))
-
+    cl.user_session.set("busy", True)
     try:
-        async with cl.Step(name="Pensando...", type="run"):
-            final_state = await asyncio.to_thread(_run_graph_sync, graph, state)
-    except Exception:
-        logger.exception("Graph execution failed for a turn")
-        # Drop the unanswered question so the student's retry starts clean.
-        if state["messages"] and isinstance(state["messages"][-1], HumanMessage):
-            state["messages"].pop()
-        await cl.Message(
-            content=(
-                "Desculpe, tive um problema para processar sua pergunta agora. "
-                "Pode tentar de novo?"
-            )
-        ).send()
-        return
+        await _clear_previous_buttons()
 
-    cl.user_session.set("state", final_state)
+        if truncate_for_edit(state["messages"], message.id):
+            logger.info("Message edited; history truncated to the edit point")
 
-    # Anonymous metrics: synchronous SQLite write, kept off the shared
-    # event loop like _run_graph_sync. Never raises (see record_turn).
-    # Skipped for the greeting fast path - a "bom dia" isn't a pedagogical
-    # turn and would only add noise (often stale, from the prior real turn
-    # still in the persisted state) to the professor's aggregates.
-    if not final_state.get("greeted", False):
-        await asyncio.to_thread(record_turn, final_state, DISCIPLINE)
+        # The Chainlit message id travels with the LangChain message (the
+        # graph's add_messages reducer keeps it) so a later edit can find it.
+        state["messages"].append(HumanMessage(content=message.content, id=message.id))
 
-    answer = final_state["messages"][-1].content
-    answer, elements = _linkify_citations(final_state, answer)
+        try:
+            async with cl.Step(name="Pensando...", type="run"):
+                final_state = await asyncio.to_thread(_run_graph_sync, graph, state)
+        except Exception:
+            logger.exception("Graph execution failed for a turn")
+            # Drop the unanswered question so the student's retry starts clean.
+            if state["messages"] and isinstance(state["messages"][-1], HumanMessage):
+                state["messages"].pop()
+            await cl.Message(
+                content=(
+                    "Desculpe, tive um problema para processar sua pergunta agora. "
+                    "Pode tentar de novo?"
+                )
+            ).send()
+            return
 
-    await cl.Message(
-        content=highlight_citations(answer),
-        elements=elements,
-    ).send()
+        cl.user_session.set("state", final_state)
+
+        greeted = final_state.get("greeted", False)
+
+        # Anonymous metrics: synchronous SQLite write, kept off the shared
+        # event loop like _run_graph_sync. Never raises (see record_turn).
+        # Skipped for the greeting fast path - a "bom dia" isn't a pedagogical
+        # turn and would only add noise (often stale, from the prior real turn
+        # still in the persisted state) to the professor's aggregates.
+        if not greeted:
+            await asyncio.to_thread(record_turn, final_state, DISCIPLINE)
+
+        answer = final_state["messages"][-1].content
+        answer, elements = _linkify_citations(final_state, answer)
+
+        reply = cl.Message(
+            content=highlight_citations(answer),
+            elements=elements,
+            actions=_actions(quick_replies_for(final_state)),
+        )
+        await reply.send()
+        cl.user_session.set("buttons_message", reply)
+
+        # Title from the first real question, not from a greeting - in the
+        # background so the student never waits on it.
+        if not greeted and not cl.user_session.get("titled"):
+            cl.user_session.set("titled", True)
+            asyncio.create_task(_set_thread_title(final_state))
+    finally:
+        cl.user_session.set("busy", False)
