@@ -105,6 +105,27 @@ class TestFrustrationEscapeValve:
         assert result.mode == "direct"
         assert result.stage == "deepen"
 
+    def test_exam_prep_on_new_topic_goes_direct_immediately(self):
+        # Regression: the topic-change reset used to return before the
+        # escape valves, so a cramming student got a guiding question on
+        # the first message of every new topic.
+        previous = teaching_state(topic_anchor=("loops", "for-loop"))
+        ls = learning_state(topic="loops", subtopic="while-loop", intent="exam_prep")
+
+        result = advance_teaching_state(previous, ls)
+
+        assert result.topic_anchor == ("loops", "while-loop")
+        assert result.mode == "direct"
+        assert result.stage == "deepen"
+
+    def test_frustration_carried_to_new_topic_goes_direct(self):
+        previous = teaching_state(topic_anchor=("loops", "for-loop"))
+        ls = learning_state(topic="recursion", subtopic=None, frustration_level=0.8)
+
+        result = advance_teaching_state(previous, ls)
+
+        assert result.mode == "direct"
+
     def test_practice_intent_does_not_force_direct(self):
         previous = teaching_state(stage="introduce", turns_in_stage=0)
         ls = learning_state(intent="practice", frustration_level=0.0)
@@ -143,8 +164,19 @@ class TestReferStage:
 
 
 class TestGuidedLoop:
-    def test_mastered_on_first_reply_wraps_up_immediately(self):
+    def test_mastered_on_first_reply_asks_one_more_question(self):
+        # A right answer to the (deliberately easy) introduce question is
+        # not enough to wrap up the topic - confirm with one more.
         previous = teaching_state(stage="introduce", turns_in_stage=0)
+        ls = learning_state(learning_progress="mastered")
+
+        result = advance_teaching_state(previous, ls)
+
+        assert result.stage == "check"
+        assert result.turns_in_stage == 1
+
+    def test_mastered_after_a_nudge_wraps_up(self):
+        previous = teaching_state(stage="check", turns_in_stage=1)
         ls = learning_state(learning_progress="mastered")
 
         result = advance_teaching_state(previous, ls)

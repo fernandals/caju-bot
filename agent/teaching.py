@@ -1,5 +1,8 @@
 from agent.state import LearningState, StudentProfile, TeachingState
 
+# Inclusive (>=): the tracker emits round values (0.6, 0.7), and an
+# exclusive check let a clearly impatient student sit at exactly 0.6
+# forever without escaping (see evals/tracking_eval.py).
 FRUSTRATION_ESCAPE_THRESHOLD = 0.6
 
 # A lower escape threshold for students the profiler has flagged as
@@ -68,18 +71,24 @@ def advance_teaching_state(
 
     anchor = (learning_state.topic, learning_state.subtopic)
 
+    # Escape valves are about the student, not the topic, so they apply on
+    # a topic change too: a student cramming for an exam (or already
+    # frustrated - the tracker carries frustration across topics) should
+    # not get a Socratic opener on every new topic before being answered.
+    escape = (
+        learning_state.frustration_level >= _frustration_threshold(student_profile)
+        or learning_state.intent in DIRECT_INTENTS
+    )
+
     if anchor != previous.topic_anchor:
         return TeachingState(
             topic_anchor=anchor,
-            mode="guided",
-            stage="introduce",
+            mode="direct" if escape else "guided",
+            stage="deepen" if escape else "introduce",
             turns_in_stage=0,
         )
 
-    if (
-        learning_state.frustration_level > _frustration_threshold(student_profile)
-        or learning_state.intent in DIRECT_INTENTS
-    ):
+    if escape:
         return previous.model_copy(
             update={"mode": "direct", "stage": "deepen"}
         )
@@ -112,13 +121,20 @@ def advance_teaching_state(
         # updated `learning_state` in the tracking node this same turn, so
         # it already reflects how well they engaged with THIS reply.
 
-        # They've demonstrated the concept back -> recap and move on.
-        if learning_state.learning_progress == "mastered":
+        guided_turns = previous.turns_in_stage + 1
+
+        # They've demonstrated the concept back -> recap and move on - but
+        # NOT on the student's first reply within the arc, mirroring the
+        # `stuck` rule below. The "introduce" question is deliberately
+        # easy (often just decoding the concept's name), so one right
+        # answer to it is not evidence of understanding the topic; the
+        # tracker does label that "mastered" once it is allowed to. One
+        # more question confirms it; if they have really got it the label
+        # persists and this fires on the next reply.
+        if learning_state.learning_progress == "mastered" and guided_turns >= 2:
             return previous.model_copy(
                 update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0}
             )
-
-        guided_turns = previous.turns_in_stage + 1
 
         # `stuck` concedes to the full explanation - but NOT on the
         # student's first reply within the arc. The tracker (a small model)

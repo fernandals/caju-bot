@@ -46,6 +46,18 @@ INTENT OPTIONS:
 - exam_prep: preparing for tests
 - debug_confusion: resolving misunderstanding
 
+The student's own words about WHY they are asking override the "prefer
+stability" rule for this field - set intent from them on the turn they
+say it:
+- any mention of a test/exam/deadline ("prova", "exame", "teste",
+  "avaliação", "amanhã", "semana que vem", "pra prova") -> exam_prep
+- they state a belief and say it doesn't fit ("achei que X", "eu achava
+  que...", "não entendi a diferença entre X e Y", "pensei que fosse...")
+  -> debug_confusion
+- asks for exercises / to practice -> practice
+- brings a concrete problem/question to solve -> solve_problem
+Otherwise (a plain "what is X") -> learn.
+
 ---
 
 COMPREHENSION LEVEL RULES:
@@ -62,28 +74,46 @@ topic), not "low".
 
 LEARNING PROGRESS RULES:
 
-This field is RELATIVE to the previous state, not an absolute skill level.
-The downstream pacing depends on it, so be deliberate:
+This field describes where the student stands on the CURRENT topic, judged
+from their latest message in light of the earlier turns. The downstream
+pacing depends on it - "mastered" is what lets the tutor recap and move
+on, so withholding it from a student who has clearly got it traps them in
+an endless loop of questions. Be deliberate:
 
 - stuck: the student repeats the same confusion, asks the same thing
   again, or a hint/explanation clearly did not land. Also when they
   explicitly say they are lost.
 - stable: engaging normally, no clear gain or loss since the last turn.
 - improving: they used a hint, corrected an earlier mistake, or answered
-  a guiding question at least partially right.
-- mastered: they explained the concept back correctly, or solved a
-  problem with little or no help.
+  a guiding question PARTIALLY right (some of it right, some missing or
+  off).
+- mastered: the student has shown they understand the core idea of the
+  topic. Use it when ANY of these is true:
+  * they explain the concept back correctly in their own words (they do
+    not need to cover every detail - the core idea is enough);
+  * they apply it correctly to an example or a new case;
+  * they have answered the guiding questions correctly in a row (e.g. the
+    previous state was already "improving" and this answer is correct
+    too).
+  The bar is a beginner-course student who gets the main idea, not an
+  expert. A fully correct answer is NOT "improving" - "improving" is for
+  partial answers.
 
-Keep the previous value unless the latest turn clearly shows movement. On
-a brand-new topic, start at "stable".
+The "prefer stability" rule above applies to the other fields; for this
+one, update it every turn based on the latest answer. On a brand-new
+topic, start at "stable".
 
 Do NOT use "stuck" on the student's first message about a topic, or before
-they have actually attempted the guiding question. "stuck" requires
+they have actually attempted the guiding question. A single WRONG answer
+is not "stuck" either - it is "stable" (record the misconception in
+current_difficulty); "stuck" is the SECOND time the same thing fails. "stuck" requires
 VISIBLE repeated struggle - the same confusion or the same question twice,
 or an explicit "I'm lost". A single unanswered guiding question is not
 "stuck"; but the student re-asking essentially what they already asked
 ("what is X" -> "how does X work"), instead of engaging with your guiding
-question, IS "stuck" - the guided approach is not landing.
+question, IS "stuck" - the guided approach is not landing. Example: the
+student asks "o que é X?", gets a guiding question, asks "mas o que é
+X?" again, gets another, and replies "não sei, só me explica" -> stuck.
 
 ---
 
@@ -109,6 +139,14 @@ Increase if:
 Decrease if:
 - correct understanding appears
 - progress is shown
+
+Scale (use these anchors, not just small nudges from the previous value):
+- 0.0-0.2: calm, engaging normally
+- 0.3-0.5: unsure, "não sei", mild confusion
+- 0.7-0.8: explicitly impatient or annoyed - "já falei que não sei",
+  "só me diz logo", exclamation marks, asking the same thing for the
+  third time
+- 0.9-1.0: openly upset or about to give up
 
 ---
 

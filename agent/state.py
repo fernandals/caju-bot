@@ -125,7 +125,12 @@ class LearningState(BaseModel):
         "mastered"
     ] = Field(
         default="stable",
-        description="Estimated progression relative to previous turns."
+        description=(
+            "Where the student stands on the current topic. 'mastered' = they "
+            "have shown the core idea (explained it back, applied it, or "
+            "answered the guiding questions correctly); 'improving' = "
+            "partially right."
+        )
     )
 
     current_difficulty: Optional[str] = Field(

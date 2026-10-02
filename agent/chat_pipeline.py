@@ -67,7 +67,7 @@ def load_pipeline(discipline_name: str):
 
     model_names = {
         "generation": os.getenv("GENERATION_MODEL", "gpt-4o-mini"),
-        "tracking": os.getenv("TRACKING_MODEL", "gpt-4.1-nano"),
+        "tracking": os.getenv("TRACKING_MODEL", "gpt-4.1-mini"),
         "planning": os.getenv("PLANNING_MODEL", "gpt-4.1-mini"),
         "grading": os.getenv("GRADING_MODEL", "gpt-4.1-nano")
     }
