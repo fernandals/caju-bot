@@ -358,3 +358,62 @@ leak** — é o fallback de render quando a citação não vira chip de PDF.
   fazer dedupe por parágrafo no `substitute_citation_markers`.
 - Suíte de testes automatizada (segue pendente) — `advance_teaching_state`,
   `route_after_tracking` e `substitute_citation_markers` são alvos óbvios.
+---
+
+## 📅 Data
+- **2026-10-02** (estados que nunca disparavam + botões e títulos no chat)
+
+### 🔍 Diagnóstico
+Nas 58 interações reais em `metrics.db`, `mastered` aparecia **0 vezes** e
+`comprehension_level` nunca era `high`. Novo eval `evals/tracking_eval.py`
+(21 cenários × 3 rodadas contra o tracker real + 2 do planner) mostrou mais
+coisas mortas: `exam_prep` nunca detectado, escape de frustração quase nunca
+disparava, e o `gpt-4.1-nano` não distinguia resposta certa de errada.
+
+### ✅ Mudanças
+**Tracker** (`TRACKING_PROMPT`, `LearningState.learning_progress`)
+- `learning_progress` era descrito como "relativo" → o modelo nunca escolhia
+  `mastered` (estado absoluto). Agora: resposta totalmente certa = `mastered`;
+  `improving` só para parcial. Regra de "preferir estabilidade" não vale pra
+  esse campo.
+- `intent`: pistas explícitas ("prova", "amanhã" → `exam_prep`; "achei que…"
+  → `debug_confusion`) sobrepõem a estabilidade.
+- Frustração com âncoras (0.7–0.8 = impaciente explícito); um único erro não
+  é `stuck` (é `stable` + `current_difficulty`).
+- `TRACKING_MODEL` padrão `gpt-4.1-nano` → `gpt-4.1-mini`.
+- Eval: nano 75/102 → mini com prompts novos **99/102**.
+
+**Arco** (`agent/teaching.py`)
+- `mastered` só conta a partir da 2ª resposta (espelha o gate do `stuck`) —
+  a pergunta do `introduce` é fácil demais pra provar domínio.
+- Limiar de frustração inclusivo (`>=`): o tracker emite 0.6 redondo.
+- Válvulas de escape (exam_prep / frustração) agora valem também na troca de
+  tópico — antes o aluno em modo prova recebia pergunta socrática no 1º turno
+  de cada tópico novo.
+
+**Geração** (`agent/nodes.py`)
+- **`SYSTEM_PROMPT` vazava pra janela da geração** (`messages[-8:]` incluía
+  `messages[0]`) como ÚLTIMA mensagem de sistema e vencia as instruções do
+  turno ("guie" > "DIRECT MODE: explique") nos ~4 primeiros turnos de toda
+  conversa. `dialogue_window()` filtra só Human/AI (geração e `greet`).
+- Instruções do estágio repetidas numa SystemMessage no fim do contexto: um
+  único turno anterior do tutor terminando em pergunta bastava pra ele
+  continuar perguntando no modo direto. Modo direto: 0/6 → 9/9 explicações.
+
+**App do aluno** (`chainlit_app.py`)
+- Bug: editar mensagem anexava a pergunta editada DEPOIS da troca antiga no
+  estado do LangGraph. Agora o histórico é cortado no ponto da edição
+  (`utils/chat_session.truncate_for_edit`, ids do Chainlit nas mensagens).
+- Botões prontos (`utils/quick_replies.py`): 3 starters na saudação e 2
+  respostas por estágio do arco (dica/não sei, exemplo/me testa,
+  exercício/próximo tópico). Sem botão "me dá a resposta" durante o guiado.
+- Título da conversa gerado da 1ª pergunta real (`agent/titler.py`, ignora
+  saudações), atualizado ao vivo na barra lateral.
+- Verificado no navegador (Playwright, cópia isolada do app).
+
+### ⚠️ Limitações
+- "Re-perguntar a mesma coisa" ainda sai `stable` em vez de `stuck` no mini
+  (0/3) — o aluno chega na explicação pelo caminho `refer` mesmo assim.
+- Resume de conversa ainda reseta learning/teaching state.
+- `evals/tracking_eval.py` chama a API (centavos por rodada) — não roda no
+  pytest.
