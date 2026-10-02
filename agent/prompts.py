@@ -396,10 +396,16 @@ TEACHING_STAGE_INSTRUCTIONS = {
 }
 
 DIRECT_MODE_INSTRUCTIONS = (
-    "Answer the student's question directly and completely right away — "
-    "do not withhold information, do not pose a guiding question first, "
-    "and do not stage the explanation across multiple turns. This student "
-    "needs a straightforward, complete answer now." + _CITATION_REMINDER
+    "DIRECT MODE - this turn is NOT part of the question-and-answer loop. "
+    "The student is preparing for an exam or has run out of patience, and "
+    "needs the explanation itself, now. Start your reply with the "
+    "explanation (what the concept is, how it works, its key parts), "
+    "grounded in the retrieved material, and cover it completely. Do NOT "
+    "ask the student what they think, do NOT ask them to guess what a "
+    "name means, and do NOT end with a guiding question - a reply that is "
+    "mainly a question is a failure in this mode. Do not withhold "
+    "information or stage it across turns. At most, close with one short "
+    "line offering an example or a practice question." + _CITATION_REMINDER
 )
 
 # When the planner picks one of these strategies (student wants to work
@@ -454,6 +460,11 @@ A complete, worked explanation is where this loop ENDS, not where it
 starts. Give it only when the teaching stage instructions below tell you
 to - they, not you, decide when step 3's "give the full answer" has been
 reached.
+
+EXCEPTION - DIRECT MODE: when the teaching stage instructions below start
+with "DIRECT MODE", the loop above does not apply to this turn at all.
+Explain directly and fully; the "Guiding questions" section below does
+not apply either.
 
 You are executing an instructional plan that has already been decided. Do
 not redesign it. Where anything is left open, choose the smaller reply and

@@ -59,6 +59,19 @@ def latest_student_question(messages) -> str | None:
     )
 
 
+def dialogue_window(messages, size: int) -> list:
+    """
+    The last `size` student/tutor messages, for passing to a chat model.
+
+    Excludes the app-level SYSTEM_PROMPT that lives at messages[0]: in a
+    short conversation a raw `messages[-8:]` slice still contains it, and
+    as the LAST system message it overrode the node's own per-turn prompt
+    ("teach through guidance" beat "DIRECT MODE: explain now"), so the
+    tutor followed different rules in the first few turns than later on.
+    """
+    return [m for m in messages if isinstance(m, (HumanMessage, AIMessage))][-size:]
+
+
 def build_conversation_transcript(messages) -> str:
     """
     Renders the student/tutor exchange as a clean {turn, role, content}
@@ -172,7 +185,7 @@ def greet(state: TutorState, config: TutorConfig, model):
         )
     )
 
-    response = model.invoke([system] + state["messages"][-4:])
+    response = model.invoke([system] + dialogue_window(state["messages"], 4))
 
     return {"messages": [response], "greeted": True}
 
@@ -488,11 +501,23 @@ EVIDENCE
         )
     )
 
-    conversation_window = state["messages"][-8:]
+    conversation_window = dialogue_window(state["messages"], 8)
+
+    # Repeat this turn's stage instructions right before the reply. Buried
+    # mid-way through the long system prompt they lose to the pattern of
+    # the recent dialogue: a single earlier tutor turn ending in a question
+    # was enough for the model to keep asking questions in DIRECT MODE.
+    turn_reminder = SystemMessage(
+        content=(
+            "Instructions for THIS reply (they take precedence over the "
+            "pattern of earlier turns):\n" + teaching_instructions
+        )
+    )
 
     response = model.invoke(
         [system_prompt]
         + conversation_window
+        + [turn_reminder]
     )
 
     if isinstance(response.content, str):
