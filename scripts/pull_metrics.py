@@ -2,8 +2,9 @@
 Pull the live metrics.db (and optionally chainlit.db) off the Railway
 volume so you can open it in the local Streamlit panel.
 
-The student app writes one anonymous row per conversation turn into
-metrics.db on the mounted volume (/app/data/chats/). This script copies
+The student app writes one row per conversation turn (identified by
+matrícula, for the personalization study) into metrics.db on the mounted
+volume (/app/data/chats/). This script copies
 that file down to data/chats/metrics.db - exactly where the "Métricas da
 turma" tab in app.py looks by default.
 
@@ -14,7 +15,8 @@ see DEPLOY.md):
 Options:
     --volume NAME   Railway volume name (default: langchain-rag-volume)
     --dest PATH     Local file to write (default: data/chats/metrics.db)
-    --chainlit      Also pull chainlit.db (chat history) next to it
+    --chainlit      Also pull chainlit.db (chat history + the students'
+                    👍/👎, used by the personalization study) next to it
     --open          Launch `streamlit run app.py` once the download is done
 
 Requires the Railway CLI (`railway`) on PATH and a linked project. If you

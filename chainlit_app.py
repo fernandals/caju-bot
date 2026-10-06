@@ -24,7 +24,13 @@ from rag.knowledge_base import (
 from utils.chat_session import needs_title, truncate_for_edit
 from utils.citations import highlight_citations
 from utils.helpers import is_enrolled, load_roster
-from utils.metrics import ensure_metrics_schema, record_turn
+from utils.metrics import (
+    ensure_metrics_schema,
+    load_study_session,
+    next_session_index,
+    record_turn,
+)
+from utils.personalization import assign_arm
 from utils.quick_replies import ACTION_NAME, STARTERS, QuickReply, quick_replies_for
 from utils.student_profile import (
     ensure_profile_schema,
@@ -237,8 +243,9 @@ def _ensure_sqlite_schema():
 
 _ensure_sqlite_schema()
 
-# Anonymous per-turn pedagogical metrics - own SQLite file on the same
-# volume, written from on_message (see utils/metrics.py).
+# Per-turn pedagogical metrics + personalization-study sessions - own
+# SQLite file on the same volume, written from on_message (see
+# utils/metrics.py).
 ensure_metrics_schema()
 
 # Per-student personalization profile - own SQLite file on the same
@@ -337,17 +344,58 @@ async def _load_or_refresh_profile(matricula: str | None) -> StudentProfile:
     return load_profile(matricula)[0]
 
 
+# ---------------- PERSONALIZATION STUDY ----------------
+async def _start_study_session(
+    matricula: str | None, profile: StudentProfile, resumed_thread_id: str | None = None
+) -> tuple[dict, StudentProfile]:
+    """
+    Decide this conversation's personalization arm (utils/personalization.py)
+    and return (study session record, profile the TUTOR gets).
+
+    A resumed conversation keeps the arm it was recorded with; a new one
+    takes the student's next session number. In the "off" arm the tutor
+    gets an empty profile, but the record keeps the real one - the
+    profiler keeps learning from every conversation either way.
+    """
+    stored = (
+        await asyncio.to_thread(load_study_session, resumed_thread_id)
+        if resumed_thread_id
+        else None
+    )
+
+    if stored is not None:
+        session_index, arm = stored["session_index"], stored["arm"]
+    else:
+        session_index = (
+            await asyncio.to_thread(next_session_index, matricula) if matricula else 0
+        )
+        arm = assign_arm(matricula, session_index)
+
+    session = {
+        "thread_id": resumed_thread_id,
+        "matricula": matricula,
+        "session_index": session_index,
+        "arm": arm,
+        "profile": profile,
+    }
+
+    return session, (profile if arm == "on" else StudentProfile())
+
+
 # ---------------- CHAT LIFECYCLE ----------------
 @cl.on_chat_start
 async def on_chat_start():
     graph, tutor_prompt, _config = _get_pipeline()
 
-    profile = await _load_or_refresh_profile(_current_matricula())
+    matricula = _current_matricula()
+    profile = await _load_or_refresh_profile(matricula)
+    study_session, tutor_profile = await _start_study_session(matricula, profile)
 
     cl.user_session.set("graph", graph)
+    cl.user_session.set("study_session", study_session)
     cl.user_session.set(
         "state",
-        TutorState(messages=[tutor_prompt], student_profile=profile),  # type: ignore
+        TutorState(messages=[tutor_prompt], student_profile=tutor_profile),  # type: ignore
     )
 
     user = cl.user_session.get("user")
@@ -375,7 +423,8 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
     list is restored, learning_state/teaching_state/evidence reset fresh -
     Chainlit's UI still replays the full step history for display
     regardless. The persistent student_profile IS restored (from its own
-    store), but a resume does not trigger a profiler refresh.
+    store), but a resume does not trigger a profiler refresh. The
+    conversation keeps its personalization arm (utils/personalization.py).
     """
     graph, tutor_prompt, _config = _get_pipeline()
 
@@ -396,10 +445,15 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
         else StudentProfile()
     )
 
+    study_session, tutor_profile = await _start_study_session(
+        matricula, profile, resumed_thread_id=thread.get("id")
+    )
+
     cl.user_session.set("graph", graph)
+    cl.user_session.set("study_session", study_session)
     cl.user_session.set(
         "state",
-        TutorState(messages=messages, student_profile=profile),  # type: ignore
+        TutorState(messages=messages, student_profile=tutor_profile),  # type: ignore
     )
 
     # Threads from before smart titles (or opened with a greeting / a
@@ -589,14 +643,6 @@ async def on_message(message: cl.Message):
 
         greeted = final_state.get("greeted", False)
 
-        # Anonymous metrics: synchronous SQLite write, kept off the shared
-        # event loop like _run_graph_sync. Never raises (see record_turn).
-        # Skipped for the greeting fast path - a "bom dia" isn't a pedagogical
-        # turn and would only add noise (often stale, from the prior real turn
-        # still in the persisted state) to the professor's aggregates.
-        if not greeted:
-            await asyncio.to_thread(record_turn, final_state, DISCIPLINE)
-
         answer = final_state["messages"][-1].content
         answer, elements = _linkify_citations(final_state, answer)
 
@@ -607,6 +653,24 @@ async def on_message(message: cl.Message):
         )
         await reply.send()
         cl.user_session.set("buttons_message", reply)
+
+        # Metrics: synchronous SQLite write, kept off the shared event loop
+        # like _run_graph_sync. Never raises (see record_turn). After the
+        # send so the row carries the reply's id - chainlit.db's feedbacks
+        # point at it. Skipped for the greeting fast path - a "bom dia"
+        # isn't a pedagogical turn and would only add noise (often stale,
+        # from the prior real turn still in the persisted state).
+        if not greeted:
+            study_session = cl.user_session.get("study_session") or {}
+            if not study_session.get("thread_id"):
+                study_session["thread_id"] = _safe_thread_id()
+            await asyncio.to_thread(
+                record_turn,
+                final_state,
+                DISCIPLINE,
+                study_session,
+                reply.id,
+            )
 
         # Title from the first real question, not from a greeting - in the
         # background so the student never waits on it.

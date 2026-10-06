@@ -12,6 +12,12 @@ from rag.knowledge_base import (
     list_material_sections,
 )
 from utils.helpers import parse_sigaa_roster, write_roster
+from utils.study_analysis import (
+    build_sessions,
+    compare_arms,
+    informed_sessions,
+    paired_by_student,
+)
 
 ROSTER_PATH = Path("data/roster.txt")
 
@@ -202,10 +208,10 @@ def _s(value) -> str | None:
 def render_metrics_panel() -> None:
     st.title("📊 Métricas da turma")
     st.caption(
-        "Sinais pedagógicos **anônimos**, um por turno de conversa — sem "
-        "identificação de aluno e sem ligação entre turnos. Dá pra ver onde a "
-        "turma trava, não pra acompanhar um aluno específico. Baixe o "
-        "`metrics.db` do volume do Railway (ver DEPLOY.md) e aponte abaixo."
+        "Sinais pedagógicos, um por turno de conversa, identificados por "
+        "matrícula (para o estudo de personalização, no fim da página). "
+        "Baixe o `metrics.db` do volume do Railway (ver DEPLOY.md) e aponte "
+        "abaixo; com o `chainlit.db` ao lado, entram também os 👍/👎 dos alunos."
     )
 
     uploaded = st.file_uploader(
@@ -284,6 +290,8 @@ def render_metrics_panel() -> None:
 
     _render_coverage(df, discipline)
 
+    _render_study(db_path)
+
     with st.expander("Ver dados brutos"):
         st.dataframe(df, width="stretch", hide_index=True)
 
@@ -334,6 +342,86 @@ def _render_coverage(df: pd.DataFrame, discipline: str | None) -> None:
         )
     else:
         st.caption("Todas as seções do material já foram usadas ao menos uma vez.")
+
+
+_STUDY_LABELS = {
+    "mastered": "Chegou a dominar um tópico (taxa)",
+    "turnsToMastered": "Turnos até dominar",
+    "concededShare": "Turnos em que o tutor desistiu de guiar",
+    "stuckShare": "Turnos travado",
+    "frustrationMean": "Frustração média",
+    "frustrationEnd": "Frustração no fim",
+    "thumbsUp": "👍 por conversa",
+    "thumbsDown": "👎 por conversa",
+}
+
+
+def _render_study(metrics_db: Path) -> None:
+    st.markdown("---")
+    st.markdown("### Estudo de personalização")
+    st.caption(
+        "Cada aluno alterna conversas **com** personalização (o tutor usa o "
+        "perfil dele) e **sem** (o tutor não vê o perfil). Comparar as duas "
+        "mostra se adaptar ao aluno ajuda. As métricas vêm do próprio "
+        "rastreador do tutor (um LLM) — são sinais, não notas."
+    )
+
+    try:
+        sessions = build_sessions(metrics_db, metrics_db.parent / "chainlit.db")
+    except Exception as exc:  # noqa: BLE001 - surface any read error
+        st.info(f"Ainda sem dados do estudo ({exc}).")
+        return
+
+    if sessions.empty:
+        st.info("Nenhuma conversa do estudo registrada ainda.")
+        return
+
+    only_informed = st.checkbox(
+        "Só conversas em que o tutor já tinha um perfil confiável do aluno",
+        value=True,
+        help=(
+            "Nas primeiras conversas o perfil ainda está vazio, então 'com' e "
+            "'sem' personalização se comportam quase igual — incluí-las dilui "
+            "a comparação."
+        ),
+    )
+    data = informed_sessions(sessions) if only_informed else sessions
+
+    a, b, c = st.columns(3)
+    a.metric("Conversas", len(data))
+    b.metric("Alunos", data["matricula"].nunique())
+    c.metric(
+        "Com / sem",
+        f"{(data['personalization'] == 'on').sum()} / {(data['personalization'] == 'off').sum()}",
+    )
+
+    if data.empty:
+        st.info("Nenhuma conversa com perfil confiável ainda — desmarque o filtro acima.")
+        return
+
+    st.markdown("**Média por condição**")
+    arms = compare_arms(data).rename(index=_STUDY_LABELS)
+    arms["better"] = arms["better"].map({"on": "com", "off": "sem", "": ""})
+    st.dataframe(
+        arms.rename(columns={"on": "com", "off": "sem", "on − off": "com − sem", "better": "melhor"}),
+        width="stretch",
+    )
+
+    paired = paired_by_student(data)
+    st.markdown(
+        f"**Cada aluno comparado com ele mesmo** ({len(paired)} alunos com "
+        f"conversas nas duas condições) — diferença média com − sem"
+    )
+    if paired.empty:
+        st.caption("Ainda não há alunos com conversas nas duas condições.")
+    else:
+        st.dataframe(
+            paired.mean().rename(index=_STUDY_LABELS).to_frame("com − sem"),
+            width="stretch",
+        )
+
+    with st.expander("Ver conversas do estudo"):
+        st.dataframe(data, width="stretch", hide_index=True)
 
 
 with tab_metrics:

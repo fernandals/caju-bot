@@ -417,3 +417,68 @@ disparava, e o `gpt-4.1-nano` não distinguia resposta certa de errada.
 - Resume de conversa ainda reseta learning/teaching state.
 - `evals/tracking_eval.py` chama a API (centavos por rodada) — não roda no
   pytest.
+
+---
+
+## 📅 Data
+- **2026-10-06** (estudo: personalizar ajuda?)
+
+### 📌 Objetivo
+Medir o benefício de um tutor que se adapta ao aluno. Antes não dava: as
+métricas eram anônimas e sem ligação entre turnos, e todo aluno recebia
+personalização — sem grupo de comparação, uma melhora ao longo do semestre
+não se distingue de "o aluno aprendeu a matéria" ou "se acostumou com o
+tutor".
+
+### ✅ Mudanças
+**Desenho: alternância por aluno** (`utils/personalization.py`). As
+conversas de cada aluno alternam **com** personalização (o tutor usa o
+perfil) e **sem** (o tutor recebe um perfil vazio). Todo mundo recebe o
+benefício parte do tempo, e cada aluno é comparado com ele mesmo. Se a 1ª
+conversa cai em "com" ou "sem" é um hash estável da matrícula (metade da
+turma começa de cada jeito). "Sem" só esconde o perfil — o profiler segue
+atualizando o perfil real. Conversa retomada mantém a condição.
+`PERSONALIZATION_MODE` = `alternate` (padrão) / `always` / `off`.
+
+**Métricas identificáveis** (`utils/metrics.py`). `turn_metrics` ganhou
+matrícula, thread, nº do turno, id da resposta (pra cruzar com o 👍/👎 do
+`chainlit.db`), condição, confiança do perfil e o que o perfil fez no
+turno. Sem nome (o nome do login é texto livre). Nova tabela
+`study_sessions`: uma linha por conversa, com a condição e um snapshot do
+perfil real no início. `metrics.db` antigo é migrado no boot (colunas
+novas via `ALTER TABLE`, linhas antigas ficam com NULL).
+
+**O que o perfil fez no turno** (`agent/teaching.personalization_trace`,
+chamado no `plan_instruction`): quais alavancas estavam em jogo
+(`early_frustration_escape`, `skip_guiding`), se o ritmo mudou em relação
+ao mesmo turno sem perfil (contrafactual de 1 passo), e se o perfil entrou
+no prompt da geração.
+
+**Análise** (`utils/study_analysis.py`). Por conversa: chegou a
+`mastered`? em quantos turnos? fração de turnos em que o tutor desistiu de
+guiar (`deepen`/`direct`), fração `stuck`, frustração (início/pico/fim/
+média), 👍/👎. Comparação por condição e **pareada por aluno** (média "com"
+− média "sem" de cada aluno). Filtro "perfil confiável" (confiança ≥ 0.4):
+antes disso "com" e "sem" se comportam quase igual. Seção "Estudo de
+personalização" na aba de métricas do `app.py`; `python -m
+scripts.export_study` gera CSVs.
+
+**Diversos**
+- O 👍/👎 do Chainlit aponta pro *run step* pai da resposta, não pra
+  mensagem — o join passa pelo `parentId` em `steps`.
+- `scripts/__init__.py`: um pacote `scripts` instalado no venv sombreava a
+  pasta do repo, e `python -m scripts.<x>` falhava (incluindo o
+  `pull_metrics`).
+- Verificado num app isolado com navegador (Playwright): conversa 1 "com",
+  conversa 2 "sem", retomada da 1 continua "com" no turno 3, 👍 cai na
+  conversa certa, painel renderiza.
+
+### ⚠️ Limitações
+- Os desfechos vêm do rastreador (um LLM), não de uma prova externa — são
+  sinais. Um pré/pós-teste curto fortaleceria o estudo.
+- Personalização de ritmo só liga a partir da 3ª conversa do aluno
+  (confiança 0.25/sessão, piso 0.4). Num estudo curto, poucas conversas
+  "informadas". Próximo passo previsto: pergunta de estilo na 1ª sessão.
+- O planner ainda não recebe o perfil (próximo passo previsto).
+- `metrics.db` agora é dado pessoal: consentimento (TCLE) e, se for
+  publicar, comitê de ética. CSVs exportados têm matrícula.

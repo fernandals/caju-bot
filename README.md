@@ -75,6 +75,7 @@ chainlit run chainlit_app.py -w --port 8501
 | `EMBED_MODEL` | não | `text-embedding-3-large` | modelo de embedding |
 | `GENERATION_MODEL` / `PLANNING_MODEL` / `TRACKING_MODEL` / `GRADING_MODEL` | não | ver `agent/chat_pipeline.py` | um modelo por nó do grafo |
 | `PROFILER_MODEL` | não | `gpt-4.1-mini` | modelo do profiler de aluno (roda 1× por sessão) |
+| `PERSONALIZATION_MODE` | não | `alternate` | estudo de personalização: `alternate` (conversas alternam com/sem perfil por aluno), `always` ou `off` — ver DEPLOY.md |
 | `TITLE_MODEL` | não | `gpt-4.1-nano` | gera o título curto da conversa na barra lateral (1× por conversa) |
 | `MODEL_TEMPERATURE` | não | `0` | temperatura dos modelos acima |
 | `MODEL_TIMEOUT` | não | `30` | timeout (s) por chamada de LLM |
@@ -100,6 +101,7 @@ chainlit_app.py        app Chainlit do aluno (chat)
 main.py                CLI mínima pra testar o agente sem UI
 scripts/create_kb.py   CLI pra criar uma base de conhecimento sem UI
 scripts/pull_metrics.py CLI pra baixar metrics.db do volume do Railway
+scripts/export_study.py CLI pra exportar o estudo de personalização em CSV
 ```
 
 ## Tipos de Documentos Reconhecidos

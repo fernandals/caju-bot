@@ -334,4 +334,9 @@ class TutorState(MessagesState):
     # node that can run a real turn must set it back to False.
     greeted: bool
 
+    # What the student profile did on this turn (set by plan_instruction,
+    # recorded by utils/metrics.py for the personalization study):
+    # {"levers": [...], "pacing_changed": bool, "profile_in_prompt": bool}
+    personalization: dict
+
     evidence: list[ChunkEvidence] = Field(default_factory=list) # type: ignore

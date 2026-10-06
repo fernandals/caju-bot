@@ -83,8 +83,8 @@ docker run -d \
   `/app/data` — the latter would shadow the baked-in
   `data/knowledge_bases/` and `data/roster.txt` behind an empty volume on
   first boot. It holds three SQLite files, all created on first boot:
-  `chainlit.db` (chat history / thread sidebar), `metrics.db` (anonymous
-  per-turn metrics), and `student_profiles.db` (per-student learning
+  `chainlit.db` (chat history / thread sidebar), `metrics.db` (per-turn
+  metrics + personalization-study sessions, keyed by enrollment ID), and `student_profiles.db` (per-student learning
   profile, keyed by enrollment ID). Without the volume, every restart
   wipes all of them.
 - The app comes up at `http://localhost:8501` (or whatever host/port
@@ -129,12 +129,46 @@ the volume is untouched by this since it's stored separately.
 
 ## Class metrics (on demand)
 
-The student app records one anonymous row per conversation turn — topic,
+The student app records one row per conversation turn — topic,
 comprehension/progress estimate, frustration, pedagogical strategy,
 which parts of the material were used — into `metrics.db`, next to
-`chainlit.db` on the mounted volume (`/app/data/chats/`). No enrollment
-id, no thread id: rows are independent events, so you can see "the class
-is stuck on topic X" but not follow an individual student.
+`chainlit.db` on the mounted volume (`/app/data/chats/`).
+
+Since 2026-10-06 the rows are **identifiable**: each carries the
+student's enrollment ID, the conversation (thread) id, the turn number
+and the id of the tutor's reply (to join the 👍/👎 stored in
+`chainlit.db`). This is for the personalization study below. No names —
+the login name is free text. Rows written before that date keep NULLs in
+these columns; the schema is migrated in place on boot.
+
+### Personalization study
+
+`PERSONALIZATION_MODE` (service variable) decides whether the tutor uses
+each student's profile:
+
+| Value | Behavior |
+|---|---|
+| `alternate` (default) | each student's conversations alternate **with** / **without** personalization; whether a student starts "with" or "without" is a stable hash of the enrollment ID, so half the class starts each way |
+| `always` | every conversation personalized (behavior before the study) |
+| `off` | never personalized |
+
+"Without" only hides the profile from the tutor — the profiler keeps
+updating it from every conversation. A resumed conversation keeps its
+arm. Each conversation's arm and a snapshot of the student's profile at
+its start are stored in `metrics.db` (`study_sessions` table).
+
+To compare, pull **both** files (`python -m scripts.pull_metrics
+--chainlit`) and open the metrics tab — the "Estudo de personalização"
+section compares the two conditions, overall and per student against
+themselves. For your own analysis:
+
+```
+python -m scripts.export_study
+```
+
+writes `data/study/sessions.csv` (one row per conversation, with its
+outcomes), `arms.csv` and `paired.csv`. These contain enrollment IDs —
+keep them out of anything you publish without anonymizing.
 
 The file is created on first boot and lives on the volume, so it survives
 redeploys and restarts. It is **not** in the container image — only the

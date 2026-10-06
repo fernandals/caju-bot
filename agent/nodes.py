@@ -16,7 +16,7 @@ from agent.state import (
     TutorConfig,
     TutorState,
 )
-from agent.teaching import advance_teaching_state
+from agent.teaching import advance_teaching_state, personalization_trace
 from rag.citation import format_citation
 from rag.models import ChunkMetadata
 
@@ -200,11 +200,23 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     """
 
     learning_state = state["learning_state"]
+    previous_teaching_state = state.get("teaching_state") or TeachingState()
+    student_profile = state.get("student_profile")
 
     proposed_teaching_state = advance_teaching_state(
-        state.get("teaching_state") or TeachingState(),
+        previous_teaching_state,
         learning_state,
-        state.get("student_profile"),
+        student_profile,
+    )
+
+    personalization = personalization_trace(
+        previous_teaching_state,
+        learning_state,
+        student_profile,
+        proposed_teaching_state,
+    )
+    personalization["profile_in_prompt"] = (
+        student_profile is not None and render_student_profile(student_profile) != NO_PROFILE_TEXT
     )
 
     planning_context = f"""
@@ -269,6 +281,7 @@ Recent conversation:
     result = {
         "answer_plan": answer_plan,
         "teaching_state": teaching_state,
+        "personalization": personalization,
         # Clear the greeting flag a previous small-talk turn may have left
         # in the persisted session state - this is a real teaching turn.
         "greeted": False,
@@ -535,6 +548,9 @@ EVIDENCE
     }
 
 
+NO_PROFILE_TEXT = "(No profile yet - this is one of the first sessions with this student.)"
+
+
 _STYLE_PHRASING = {
     "concise": "Tends to prefer a concise answer.",
     "detailed": "Tends to prefer a thorough, detailed explanation.",
@@ -565,7 +581,7 @@ def render_student_profile(profile: StudentProfile) -> str:
         parts.append(f"Has repeatedly struggled with: {', '.join(profile.shaky_topics)}.")
 
     if not parts:
-        return "(No profile yet - this is one of the first sessions with this student.)"
+        return NO_PROFILE_TEXT
 
     return " ".join(parts)
 

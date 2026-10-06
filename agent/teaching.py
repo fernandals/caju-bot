@@ -182,3 +182,41 @@ def advance_teaching_state(
     return previous.model_copy(
         update={"mode": "guided", "stage": "introduce", "turns_in_stage": 0}
     )
+
+
+def personalization_trace(
+    previous: TeachingState,
+    learning_state: LearningState,
+    student_profile: StudentProfile | None,
+    proposed: TeachingState,
+) -> dict:
+    """
+    What the student profile did to THIS turn's pacing, for the
+    personalization study (utils/metrics.py records it per turn).
+
+    - levers: the profile-driven rules that were in play this turn
+      ("early_frustration_escape" = the lowered threshold is what tripped
+      the escape; "skip_guiding" = the student is known not to benefit
+      from guiding questions).
+    - pacing_changed: whether `proposed` differs from what the same turn
+      would have produced with no profile. One-step counterfactual only:
+      once pacing diverges, later turns start from different states.
+    """
+    levers: list[str] = []
+
+    frustration = learning_state.frustration_level
+    if (
+        _frustration_threshold(student_profile) <= frustration < FRUSTRATION_ESCAPE_THRESHOLD
+        and learning_state.intent not in DIRECT_INTENTS
+    ):
+        levers.append("early_frustration_escape")
+
+    if _guiding_questions_ineffective(student_profile):
+        levers.append("skip_guiding")
+
+    baseline = advance_teaching_state(previous, learning_state, None)
+
+    return {
+        "levers": levers,
+        "pacing_changed": proposed != baseline,
+    }
