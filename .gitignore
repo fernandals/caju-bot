@@ -4,6 +4,9 @@ infos
 .env
 __pycache__/
 __init__.py
+# ...except this one: a third-party `scripts` package in the venv shadows
+# the namespace package, breaking `python -m scripts.<name>`.
+!scripts/__init__.py
 data/
 .aider*
 *.out
