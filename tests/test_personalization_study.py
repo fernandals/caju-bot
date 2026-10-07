@@ -94,15 +94,25 @@ class TestPersonalizationTrace:
         assert trace["levers"] == []
         assert trace["pacing_changed"] is False
 
-    def test_skip_guiding(self):
+    def test_poor_guiding_short_arc(self):
+        # _ts() is the student's 2nd reply: the shortened arc concedes here,
+        # where the default one would keep asking.
         profile = StudentProfile(responds_to_guiding_questions="poorly", confidence=0.8)
         previous, ls = _ts(), _ls()
         proposed = advance_teaching_state(previous, ls, profile)
 
         trace = personalization_trace(previous, ls, profile, proposed)
 
-        assert "skip_guiding" in trace["levers"]
+        assert "poor_guiding_short_arc" in trace["levers"]
         assert trace["pacing_changed"] is True
+
+    def test_topic_levers(self):
+        profile = StudentProfile(confidence=0.8)
+        previous, ls = _ts(), _ls()
+        proposed = advance_teaching_state(previous, ls, profile, "shaky")
+
+        assert personalization_trace(previous, ls, profile, proposed, "shaky")["levers"] == ["shaky_topic_short_arc"]
+        assert personalization_trace(previous, ls, profile, proposed, "solid")["levers"] == ["solid_topic_fast_mastery"]
 
 
 # ---------------- recording ----------------

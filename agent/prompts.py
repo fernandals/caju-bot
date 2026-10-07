@@ -431,6 +431,15 @@ STRATEGY_STEP_NOTE = (
     "follow in order."
 )
 
+# Appended when the student's profile says they grasp ideas better from a
+# concrete case first (agent/plan_profile.leads_with_example).
+EXAMPLE_FIRST_NOTE = (
+    "This student understands better from a concrete case first: open with "
+    "an example taken from the retrieved material, then generalize to the "
+    "concept. If the material has no suitable example, explain without one "
+    "- do not invent it."
+)
+
 GENERATE_PROMPT = """
 You are an adaptive AI tutor helping a student learn {domain}.
 

@@ -1,3 +1,4 @@
+from agent.familiarity import Familiarity
 from agent.state import LearningState, StudentProfile, TeachingState
 
 # Inclusive (>=): the tracker emits round values (0.6, 0.7), and an
@@ -20,19 +21,36 @@ PROFILE_CONFIDENCE_FLOOR = 0.4
 # the planning node picks an exercise_first / hint_only strategy.
 DIRECT_INTENTS = {"exam_prep"}
 
-# How many consecutive guided turns (the "introduce" turn plus "check"
-# nudges) to spend on one topic before conceding to a full explanation.
-# While the student stays engaged and unfrustrated the arc loops in
-# "check"; this is the ceiling on that loop.
+# The tutor's own decision to stop guiding and explain (the student is
+# "stuck", or the guided-turn cap below is reached) never happens before
+# the student has replied to this many guiding questions - whatever the
+# profile says. The escape valves (frustration, exam_prep) and the
+# student's explicit request (planning's "refer" path) are not the tutor
+# giving up, and still apply at any point.
+MIN_GUIDED_ATTEMPTS = 2
+
+# How many consecutive guided turns (student replies to guiding questions)
+# to spend on one topic before conceding to a full explanation. While the
+# student stays engaged and unfrustrated the arc loops in "check"; this is
+# the ceiling on that loop. The profile can lower it (guided_turn_cap):
 GUIDED_TURN_CAP = 5
+
+# ...to this on a topic the student has struggled with before: a long
+# Socratic loop on ground that already failed tends to frustrate, so guide
+# briefly, then explain step by step (agent/plan_profile.py).
+GUIDED_TURN_CAP_SHAKY = 3
+
+# ...and to the minimum for a student known not to benefit from guiding
+# questions.
+GUIDED_TURN_CAP_POOR_GUIDING = MIN_GUIDED_ATTEMPTS
+
+
+def profile_confident(profile: StudentProfile | None) -> bool:
+    return profile is not None and profile.confidence >= PROFILE_CONFIDENCE_FLOOR
 
 
 def _frustration_threshold(profile: StudentProfile | None) -> float:
-    if (
-        profile is not None
-        and profile.confidence >= PROFILE_CONFIDENCE_FLOOR
-        and profile.frustration_tendency == "high"
-    ):
+    if profile_confident(profile) and profile.frustration_tendency == "high":  # type: ignore[union-attr]
         return FRUSTRATION_ESCAPE_THRESHOLD_SENSITIVE
 
     return FRUSTRATION_ESCAPE_THRESHOLD
@@ -40,16 +58,36 @@ def _frustration_threshold(profile: StudentProfile | None) -> float:
 
 def _guiding_questions_ineffective(profile: StudentProfile | None) -> bool:
     return (
-        profile is not None
-        and profile.confidence >= PROFILE_CONFIDENCE_FLOOR
-        and profile.responds_to_guiding_questions == "poorly"
+        profile_confident(profile)
+        and profile.responds_to_guiding_questions == "poorly"  # type: ignore[union-attr]
     )
+
+
+def effective_familiarity(
+    familiarity: Familiarity, profile: StudentProfile | None
+) -> Familiarity:
+    """Topic familiarity counts only once the profile is confident."""
+    return familiarity if profile_confident(profile) else "new"
+
+
+def guided_turn_cap(profile: StudentProfile | None, familiarity: Familiarity = "new") -> int:
+    """Guided turns before conceding, for this student on this topic."""
+    cap = GUIDED_TURN_CAP
+
+    if effective_familiarity(familiarity, profile) == "shaky":
+        cap = min(cap, GUIDED_TURN_CAP_SHAKY)
+
+    if _guiding_questions_ineffective(profile):
+        cap = min(cap, GUIDED_TURN_CAP_POOR_GUIDING)
+
+    return max(cap, MIN_GUIDED_ATTEMPTS)
 
 
 def advance_teaching_state(
     previous: TeachingState,
     learning_state: LearningState,
     student_profile: StudentProfile | None = None,
+    familiarity: Familiarity = "new",
 ) -> TeachingState:
     """
     Deterministically computes the next TeachingState from the just-updated
@@ -63,10 +101,15 @@ def advance_teaching_state(
     student is stuck, the guided turn cap is hit, or an escape valve fires
     (frustration / exam_prep).
 
-    `student_profile` (loaded once per session, never mutated here) tunes
-    two things when it is confident enough: a frustration-prone student
-    escapes to a direct answer sooner, and a student who does poorly with
-    guiding questions skips the one-nudge "check" step.
+    `student_profile` (loaded once per session, never mutated here) and
+    `familiarity` (agent/familiarity.py: is the current topic in the
+    profile's solid/shaky lists?) tune the arc when the profile is
+    confident enough:
+    - a frustration-prone student escapes to a direct answer sooner;
+    - the guided-turn cap drops to GUIDED_TURN_CAP_SHAKY on a shaky topic
+      and to the minimum for a student who does poorly with guiding
+      questions - never below MIN_GUIDED_ATTEMPTS;
+    - on a solid topic one correct reply is enough to recap and move on.
     """
 
     anchor = (learning_state.topic, learning_state.subtopic)
@@ -122,6 +165,7 @@ def advance_teaching_state(
         # it already reflects how well they engaged with THIS reply.
 
         guided_turns = previous.turns_in_stage + 1
+        familiar = effective_familiarity(familiarity, student_profile)
 
         # They've demonstrated the concept back -> recap and move on - but
         # NOT on the student's first reply within the arc, mirroring the
@@ -130,8 +174,14 @@ def advance_teaching_state(
         # answer to it is not evidence of understanding the topic; the
         # tracker does label that "mastered" once it is allowed to. One
         # more question confirms it; if they have really got it the label
-        # persists and this fires on the next reply.
-        if learning_state.learning_progress == "mastered" and guided_turns >= 2:
+        # persists and this fires on the next reply. Exception: a topic the
+        # profile says they already master - one right answer confirms it.
+        replies_to_confirm_mastery = 1 if familiar == "solid" else 2
+
+        if (
+            learning_state.learning_progress == "mastered"
+            and guided_turns >= replies_to_confirm_mastery
+        ):
             return previous.model_copy(
                 update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0}
             )
@@ -144,19 +194,18 @@ def advance_teaching_state(
         # they really are stuck the label persists (and frustration
         # typically rises, tripping the escape valve above).
         stuck_after_a_nudge = (
-            learning_state.learning_progress == "stuck" and guided_turns >= 2
+            learning_state.learning_progress == "stuck"
+            and guided_turns >= MIN_GUIDED_ATTEMPTS
         )
 
         # Concede to the full explanation only when guiding has genuinely
-        # stalled, has gone on longer than is productive, or this student
-        # is known not to benefit from guiding questions. A student who is
-        # still engaging - even partially - and is not frustrated (the
-        # frustration escape valve above already handled that) keeps being
-        # guided rather than handed the answer.
-        concede = (
-            stuck_after_a_nudge
-            or guided_turns >= GUIDED_TURN_CAP
-            or _guiding_questions_ineffective(student_profile)
+        # stalled or has gone on longer than is productive for this
+        # student on this topic. A student who is still engaging - even
+        # partially - and is not frustrated (the frustration escape valve
+        # above already handled that) keeps being guided rather than
+        # handed the answer.
+        concede = stuck_after_a_nudge or guided_turns >= guided_turn_cap(
+            student_profile, familiar
         )
 
         if concede:
@@ -189,15 +238,17 @@ def personalization_trace(
     learning_state: LearningState,
     student_profile: StudentProfile | None,
     proposed: TeachingState,
+    familiarity: Familiarity = "new",
 ) -> dict:
     """
     What the student profile did to THIS turn's pacing, for the
     personalization study (utils/metrics.py records it per turn).
 
-    - levers: the profile-driven rules that were in play this turn
+    - levers: the profile-driven pacing rules in play this turn
       ("early_frustration_escape" = the lowered threshold is what tripped
-      the escape; "skip_guiding" = the student is known not to benefit
-      from guiding questions).
+      the escape; "poor_guiding_short_arc" / "shaky_topic_short_arc" = a
+      lowered guided-turn cap; "solid_topic_fast_mastery" = one correct
+      reply is enough on this topic).
     - pacing_changed: whether `proposed` differs from what the same turn
       would have produced with no profile. One-step counterfactual only:
       once pacing diverges, later turns start from different states.
@@ -212,7 +263,13 @@ def personalization_trace(
         levers.append("early_frustration_escape")
 
     if _guiding_questions_ineffective(student_profile):
-        levers.append("skip_guiding")
+        levers.append("poor_guiding_short_arc")
+
+    familiar = effective_familiarity(familiarity, student_profile)
+    if familiar == "shaky":
+        levers.append("shaky_topic_short_arc")
+    elif familiar == "solid":
+        levers.append("solid_topic_fast_mastery")
 
     baseline = advance_teaching_state(previous, learning_state, None)
 

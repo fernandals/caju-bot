@@ -16,7 +16,13 @@ from agent.state import (
     TutorConfig,
     TutorState,
 )
-from agent.teaching import advance_teaching_state, personalization_trace
+from agent.familiarity import topic_familiarity
+from agent.plan_profile import apply_profile_to_plan, leads_with_example
+from agent.teaching import (
+    advance_teaching_state,
+    effective_familiarity,
+    personalization_trace,
+)
 from rag.citation import format_citation
 from rag.models import ChunkMetadata
 
@@ -203,10 +209,15 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     previous_teaching_state = state.get("teaching_state") or TeachingState()
     student_profile = state.get("student_profile")
 
+    # Is this topic in the profile's solid/shaky lists? Deterministic word
+    # matching (agent/familiarity.py), no LLM call.
+    familiarity = topic_familiarity(learning_state, student_profile, config.subject)
+
     proposed_teaching_state = advance_teaching_state(
         previous_teaching_state,
         learning_state,
         student_profile,
+        familiarity,
     )
 
     personalization = personalization_trace(
@@ -214,7 +225,9 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
         learning_state,
         student_profile,
         proposed_teaching_state,
+        familiarity,
     )
+    personalization["familiarity"] = effective_familiarity(familiarity, student_profile)
     personalization["profile_in_prompt"] = (
         student_profile is not None and render_student_profile(student_profile) != NO_PROFILE_TEXT
     )
@@ -277,6 +290,14 @@ Recent conversation:
         teaching_state = teaching_state.model_copy(
             update={"stage": "refer", "turns_in_stage": 0}
         )
+
+    # The profile's explanation style / topic familiarity, applied to the
+    # plan in code on explanation turns (agent/plan_profile.py).
+    answer_plan, plan_levers = apply_profile_to_plan(
+        answer_plan, teaching_state, learning_state, student_profile, familiarity
+    )
+    personalization["levers"] += plan_levers
+    personalization["plan_changed"] = bool(plan_levers)
 
     result = {
         "answer_plan": answer_plan,
@@ -472,7 +493,9 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
     student_profile = state.get("student_profile") or StudentProfile()
 
     teaching_instructions = resolve_teaching_instructions(
-        teaching_state, answer_plan.strategy
+        teaching_state,
+        answer_plan.strategy,
+        example_first=leads_with_example(answer_plan, teaching_state, student_profile),
     )
 
     context = ""
@@ -586,7 +609,9 @@ def render_student_profile(profile: StudentProfile) -> str:
     return " ".join(parts)
 
 
-def resolve_teaching_instructions(teaching_state: TeachingState, strategy: str) -> str:
+def resolve_teaching_instructions(
+    teaching_state: TeachingState, strategy: str, example_first: bool = False
+) -> str:
     """
     Picks the instruction block for generate_answer.
 
@@ -597,6 +622,8 @@ def resolve_teaching_instructions(teaching_state: TeachingState, strategy: str) 
         change what kind of reply this is), unless we're already in direct
         mode;
       - step_by_step just appends a formatting note.
+    `example_first` (the student's profile, see agent/plan_profile.py)
+    appends a note to open with the example.
     """
     if teaching_state.mode == "direct":
         base = prompts.DIRECT_MODE_INSTRUCTIONS
@@ -606,7 +633,10 @@ def resolve_teaching_instructions(teaching_state: TeachingState, strategy: str) 
         base = prompts.TEACHING_STAGE_INSTRUCTIONS[teaching_state.stage]
 
     if strategy == "step_by_step":
-        return f"{base}\n\n{prompts.STRATEGY_STEP_NOTE}"
+        base = f"{base}\n\n{prompts.STRATEGY_STEP_NOTE}"
+
+    if example_first:
+        base = f"{base}\n\n{prompts.EXAMPLE_FIRST_NOTE}"
 
     return base
 

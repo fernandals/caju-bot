@@ -220,14 +220,17 @@ class TestGuidedLoop:
 
         assert result.stage == "deepen"
 
-    def test_profile_poor_guiding_response_concedes_on_first_reply(self):
-        previous = teaching_state(stage="introduce", turns_in_stage=0)
-        ls = learning_state(learning_progress="improving")
+    def test_profile_poor_guiding_response_still_tries_twice(self):
+        # The profile shortens the arc to the minimum, but the tutor still
+        # tries MIN_GUIDED_ATTEMPTS guiding questions before explaining.
         profile = StudentProfile(responds_to_guiding_questions="poorly", confidence=0.9)
+        ls = learning_state(learning_progress="improving")
 
-        result = advance_teaching_state(previous, ls, profile)
+        first = advance_teaching_state(teaching_state(stage="introduce", turns_in_stage=0), ls, profile)
+        second = advance_teaching_state(first, ls, profile)
 
-        assert result.stage == "deepen"
+        assert first.stage == "check"
+        assert second.stage == "deepen"
 
     def test_profile_poor_guiding_response_ignored_below_confidence_floor(self):
         previous = teaching_state(stage="introduce", turns_in_stage=0)

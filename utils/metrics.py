@@ -82,6 +82,8 @@ _STUDY_COLUMNS = {
     "profileLevers": "TEXT",
     "pacingChanged": "INTEGER",
     "profileInPrompt": "INTEGER",
+    "planChanged": "INTEGER",
+    "topicFamiliarity": "TEXT",
 }
 
 
@@ -297,6 +299,8 @@ def record_turn(
             "profileLevers": json.dumps(pz.get("levers") or []),
             "pacingChanged": int(bool(pz.get("pacing_changed"))),
             "profileInPrompt": int(bool(pz.get("profile_in_prompt"))),
+            "planChanged": int(bool(pz.get("plan_changed"))),
+            "topicFamiliarity": pz.get("familiarity"),
         }
 
         columns = ", ".join(f'"{c}"' for c in row)

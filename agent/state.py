@@ -336,7 +336,8 @@ class TutorState(MessagesState):
 
     # What the student profile did on this turn (set by plan_instruction,
     # recorded by utils/metrics.py for the personalization study):
-    # {"levers": [...], "pacing_changed": bool, "profile_in_prompt": bool}
+    # {"levers": [...], "pacing_changed": bool, "plan_changed": bool,
+    #  "profile_in_prompt": bool, "familiarity": "solid" | "shaky" | "new"}
     personalization: dict
 
     evidence: list[ChunkEvidence] = Field(default_factory=list) # type: ignore

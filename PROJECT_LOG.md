@@ -482,3 +482,54 @@ scripts.export_study` gera CSVs.
 - O planner ainda não recebe o perfil (próximo passo previsto).
 - `metrics.db` agora é dado pessoal: consentimento (TCLE) e, se for
   publicar, comitê de ética. CSVs exportados têm matrícula.
+
+---
+
+## 📅 Data
+- **2026-10-06** (perfil enraizado no agente, por regras em código)
+
+### 🔍 Diagnóstico
+O perfil só decidia algo em dois pontos (`frustration_tendency` e
+`responds_to_guiding_questions` no `teaching.py`). `explanation_style`,
+`solid_topics` e `shaky_topics` chegavam só como texto no prompt da
+geração — que as regras de estágio sobrepõem — e o planner nunca via o
+perfil.
+
+### ✅ Mudanças (tudo determinístico, nenhuma chamada de modelo a mais)
+**Familiaridade com o tópico** (`agent/familiarity.py`). Compara o tópico
+do tracker com as listas do perfil por palavras-núcleo: sem acento,
+stopwords pt/en, palavras genéricas ("style", "basics"…) e palavras do
+nome da disciplina removidas; palavras casam por igualdade, prefixo
+(cliente/client, servidor/server) ou grafia próxima
+(arquitetura/architecture). Testado nos tópicos reais do `metrics.db`.
+Tópico genérico demais ("architecture styles") nunca casa.
+
+**Ritmo** (`agent/teaching.py`)
+- `MIN_GUIDED_ATTEMPTS = 2`: o tutor nunca desiste de guiar (por `stuck`
+  ou por limite) antes de 2 respostas do aluno — inclusive pro perfil
+  "não responde bem a perguntas", que antes explicava na 1ª.
+  Exceções mantidas: válvulas de escape (frustração, `exam_prep`) e
+  pedido explícito (caminho `refer`).
+- Limite de turnos guiados por aluno/tópico (`guided_turn_cap`): 5 padrão;
+  3 em tópico `shaky`; 2 pra quem não responde bem a perguntas.
+- Tópico `solid`: 1 resposta certa já conta como `mastered`.
+
+**Plano** (`agent/plan_profile.py`, depois do planner, só em turnos de
+explicação — `deepen`/modo direto; turnos guiados e `exercise_first`/
+`hint_only` intocados): tópico `shaky` ou estilo `step_by_step` → passos
+numerados; `example_first` → exemplo + nota "abra com o exemplo do
+material"; `concise` limita a profundidade em `medium`; `detailed` sobe
+pra ao menos `medium` (`deep` se compreensão baixa).
+
+**Estudo.** Novas alavancas no `profileLevers` (`shaky_topic_short_arc`,
+`solid_topic_fast_mastery`, `poor_guiding_short_arc` — antes
+`skip_guiding` —, `shaky_topic_steps`, `style_steps`, `style_examples`,
+`style_depth`); colunas `planChanged` e `topicFamiliarity` (migradas no
+boot). Na condição "sem" o perfil vazio deixa todas as regras inertes
+(teste garante).
+
+### ⚠️ Limitações
+- Casamento de tópico por palavras: prefixo comum pode colidir
+  (service/server) e tradução sem semelhança não casa (blackboard/quadro).
+- Os valores 2 / 3 / 5 são escolhas iniciais — calibrar com o estudo.
+- Tudo continua atrás do piso de confiança 0.4 (a partir da 3ª conversa).

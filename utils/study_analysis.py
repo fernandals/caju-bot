@@ -45,6 +45,7 @@ SESSION_COLUMNS = [
     "frustrationEnd",
     "frustrationMean",
     "pacingChangedTurns",
+    "planChangedTurns",
     "thumbsUp",
     "thumbsDown",
 ]
@@ -124,6 +125,7 @@ def _session_outcomes(turns: pd.DataFrame) -> dict:
         "frustrationEnd": frustration.iloc[-1] if len(frustration) else None,
         "frustrationMean": frustration.mean() if len(frustration) else None,
         "pacingChangedTurns": int(turns["pacingChanged"].fillna(0).sum()),
+        "planChangedTurns": int(turns["planChanged"].fillna(0).sum()),
         "thumbsUp": int((turns["feedback"] == 1).sum()),
         "thumbsDown": int((turns["feedback"] == 0).sum()),
     }

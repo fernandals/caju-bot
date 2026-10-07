@@ -39,8 +39,14 @@ bem a perguntas socráticas, tendência a frustração, tópicos já dominados
 / ainda difíceis, e uma nota curta pro tutor. É atualizado **uma vez por
 sessão** — no início de cada conversa, um modelo relê a conversa anterior
 do aluno e mescla no perfil (persistido em `data/chats/student_profiles.db`).
-O perfil entra no prompt de geração e ajusta o ritmo pedagógico; nunca é
-alterado durante a conversa.
+O perfil entra no prompt de geração e, por regras em código (sem chamada
+de modelo), ajusta o ritmo e o plano da resposta: limite de perguntas
+guiadas por aluno/tópico (sempre ao menos 2 antes de explicar), tópico já
+dominado fecha mais cedo, tópico difícil ganha explicação passo a passo,
+e o estilo preferido (exemplo primeiro, passo a passo, conciso,
+detalhado) molda as explicações (`agent/teaching.py`,
+`agent/plan_profile.py`, `agent/familiarity.py`). Nunca é alterado
+durante a conversa.
 
 ## Rodando localmente
 
