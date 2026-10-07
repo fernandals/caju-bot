@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS study_sessions (
     "personalization" TEXT NOT NULL,
     "profile" TEXT,
     "profileConfidence" REAL,
-    "createdAt" TEXT NOT NULL
+    "createdAt" TEXT NOT NULL,
+    "discipline" TEXT
 );
 """
 
@@ -87,6 +88,12 @@ _STUDY_COLUMNS = {
 }
 
 
+# Added to study_sessions after it first shipped - same migration.
+_SESSION_COLUMNS_ADDED = {
+    "discipline": "TEXT",
+}
+
+
 def ensure_metrics_schema(db_path: Path = DB_PATH) -> None:
     """Create the tables if missing and add any study column an older
     metrics.db lacks. Same pattern as chainlit_app._ensure_sqlite_schema()."""
@@ -95,10 +102,14 @@ def ensure_metrics_schema(db_path: Path = DB_PATH) -> None:
     try:
         conn.executescript(_SCHEMA)
 
-        existing = {row[1] for row in conn.execute('PRAGMA table_info("turn_metrics")')}
-        for column, sql_type in _STUDY_COLUMNS.items():
-            if column not in existing:
-                conn.execute(f'ALTER TABLE turn_metrics ADD COLUMN "{column}" {sql_type}')
+        for table, columns in (
+            ("turn_metrics", _STUDY_COLUMNS),
+            ("study_sessions", _SESSION_COLUMNS_ADDED),
+        ):
+            existing = {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
+            for column, sql_type in columns.items():
+                if column not in existing:
+                    conn.execute(f'ALTER TABLE {table} ADD COLUMN "{column}" {sql_type}')
 
         conn.commit()
     finally:
@@ -154,7 +165,9 @@ def load_study_session(thread_id: str, db_path: Path = DB_PATH) -> dict | None:
     }
 
 
-def record_study_session(session: dict, db_path: Path = DB_PATH) -> None:
+def record_study_session(
+    session: dict, discipline: str | None = None, db_path: Path = DB_PATH
+) -> None:
     """
     Insert the conversation's study_sessions row on its first recorded
     turn. Idempotent (INSERT OR IGNORE): every later turn of the same
@@ -176,8 +189,8 @@ def record_study_session(session: dict, db_path: Path = DB_PATH) -> None:
                 """
                 INSERT OR IGNORE INTO study_sessions
                     ("threadId", "matricula", "sessionIndex", "personalization",
-                     "profile", "profileConfidence", "createdAt")
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                     "profile", "profileConfidence", "createdAt", "discipline")
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session["thread_id"],
@@ -187,6 +200,7 @@ def record_study_session(session: dict, db_path: Path = DB_PATH) -> None:
                     profile.model_dump_json() if profile is not None else None,
                     _field(profile, "confidence"),
                     datetime.now(timezone.utc).isoformat(),
+                    discipline,
                 ),
             )
             conn.commit()
@@ -262,7 +276,7 @@ def record_turn(
         session = session or {}
 
         if session:
-            record_study_session(session, db_path)
+            record_study_session(session, discipline, db_path)
 
         ls = final_state.get("learning_state")
         ap = final_state.get("answer_plan")

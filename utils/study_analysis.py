@@ -131,12 +131,18 @@ def _session_outcomes(turns: pd.DataFrame) -> dict:
     }
 
 
-def build_sessions(metrics_db: Path, chainlit_db: Path | None = None) -> pd.DataFrame:
+def build_sessions(
+    metrics_db: Path, chainlit_db: Path | None = None, discipline: str | None = None
+) -> pd.DataFrame:
     """
     One row per study conversation (SESSION_COLUMNS). Turns recorded before
-    the study (no threadId) are ignored.
+    the study (no threadId) are ignored. With `discipline`, only that
+    course's conversations - one volume can outlive a course, and a
+    comparison should not mix two.
     """
     sessions = _read(metrics_db, "SELECT * FROM study_sessions")
+    if discipline is not None:
+        sessions = sessions[sessions["discipline"].isna() | (sessions["discipline"] == discipline)]
     turns = _read(
         metrics_db, 'SELECT * FROM turn_metrics WHERE "threadId" IS NOT NULL'
     )

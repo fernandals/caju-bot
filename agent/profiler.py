@@ -62,6 +62,7 @@ def profile_student(
             logger.warning("Profiler returned no structured output; keeping previous")
             return previous
 
+        updated.course = previous.course
         updated.sessions_observed = previous.sessions_observed + 1
         updated.confidence = _confidence_for(updated.sessions_observed)
         updated.last_updated = datetime.now(timezone.utc).isoformat()

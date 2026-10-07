@@ -120,6 +120,17 @@ Repeat steps 1-4 per course: a fresh knowledge base, a fresh
 (`-p 8502:8501`, `-p 8503:8501`, ...). Each is a fully independent
 container — there's no shared state or shared roster between them.
 
+## Reusing a deployment (and its volume) for a different course
+
+If you rebuild the image with a different course and deploy it onto the
+same volume, students' stored profiles carry over only what describes the
+learner (preferred explanation style, how they respond to guiding
+questions, frustration tendency). The topic lists and the tutor note
+belong to a course: they are cleared the first time the profile is loaded
+under the new course. Conversations are tagged with their course, and the
+profiler only reads conversations from the current one. The study panel
+and `scripts.export_study --discipline` also compare one course at a time.
+
 ## Updating a course's material mid-semester
 
 There's no live "add a PDF" flow in the container. To update the

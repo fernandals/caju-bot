@@ -533,3 +533,22 @@ boot). Na condição "sem" o perfil vazio deixa todas as regras inertes
   (service/server) e tradução sem semelhança não casa (blackboard/quadro).
 - Os valores 2 / 3 / 5 são escolhas iniciais — calibrar com o estudo.
 - Tudo continua atrás do piso de confiança 0.4 (a partir da 3ª conversa).
+
+#### Perfil escopado por disciplina
+O volume sobrevive à troca de disciplina (imagem reconstruída pra outro
+curso no mesmo serviço). Sem escopo, os `solid_topics`/`shaky_topics`
+do curso anterior entrariam no ritmo do novo, e o profiler releria
+conversas antigas.
+- `StudentProfile.course` (gerido pelo sistema; o profiler não altera).
+  `utils/student_profile.scope_to_course`: na troca de curso mantém os
+  traços do aluno (estilo, resposta a perguntas guiadas, frustração,
+  confiança) e zera tópicos e `tutor_note`; persiste na hora. Perfil
+  antigo sem curso é atribuído ao curso atual.
+- Conversas novas são marcadas com o curso no metadata da thread
+  (`chainlit_app._tag_thread_course`); `latest_other_thread` só devolve
+  conversas do curso atual (as sem marca contam como do curso atual,
+  exceto logo após uma troca).
+- `study_sessions.discipline` (migrado no boot); painel e
+  `export_study --discipline` comparam um curso por vez.
+- Verificado no app isolado: perfil semeado de "Cálculo I" perdeu
+  tópicos/nota, manteve estilo e confiança; thread marcada com o curso.

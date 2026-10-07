@@ -34,9 +34,11 @@ from utils.personalization import assign_arm
 from utils.quick_replies import ACTION_NAME, STARTERS, QuickReply, quick_replies_for
 from utils.student_profile import (
     ensure_profile_schema,
+    COURSE_METADATA_KEY,
     latest_other_thread,
     load_profile,
     save_profile,
+    scope_to_course,
 )
 
 load_dotenv()
@@ -293,16 +295,40 @@ def _safe_thread_id() -> str | None:
         return None
 
 
+def _course_profile_sync(matricula: str) -> tuple[StudentProfile, str | None, bool]:
+    """
+    The stored profile scoped to this deployment's course: (profile,
+    last_profiled_thread, switched). After a course switch the old
+    course's topic lists and tutor note are dropped - persisted right away
+    so they can't come back (utils/student_profile.scope_to_course).
+    """
+    stored, last_profiled = load_profile(matricula)
+    profile, switched = scope_to_course(stored, DISCIPLINE)
+
+    if profile is not stored:
+        save_profile(matricula, profile, last_profiled)
+
+    return profile, last_profiled, switched
+
+
 def _refresh_profile_sync(matricula: str, current_thread_id: str | None) -> StudentProfile:
     """
     Option A catch-up: load the stored profile, and if the student has a
-    finished conversation we haven't profiled yet, fold it in and persist.
-    Runs off the event loop (asyncio.to_thread). Never raises - profiling
-    must not break a session.
+    finished conversation in THIS course we haven't profiled yet, fold it
+    in and persist. Runs off the event loop (asyncio.to_thread). Never
+    raises - profiling must not break a session.
     """
-    profile, last_profiled = load_profile(matricula)
+    profile, last_profiled, switched = _course_profile_sync(matricula)
 
-    found = latest_other_thread(DB_PATH, matricula, current_thread_id)
+    # Untagged threads predate course tagging: they belong to the course
+    # the profile was built in, which after a switch is not this one.
+    found = latest_other_thread(
+        DB_PATH,
+        matricula,
+        current_thread_id,
+        course=DISCIPLINE,
+        include_untagged=not switched,
+    )
 
     if found is None:
         return profile
@@ -341,7 +367,7 @@ async def _load_or_refresh_profile(matricula: str | None) -> StudentProfile:
     except Exception:  # noqa: BLE001 - degrade to stored profile
         logger.warning("Profile refresh failed for %s", matricula, exc_info=True)
 
-    return load_profile(matricula)[0]
+    return (await asyncio.to_thread(_course_profile_sync, matricula))[0]
 
 
 # ---------------- PERSONALIZATION STUDY ----------------
@@ -413,6 +439,7 @@ async def on_chat_start():
 
     cl.user_session.set("buttons_message", welcome)
     cl.user_session.set("titled", False)
+    cl.user_session.set("course_tagged", False)
 
 
 @cl.on_chat_resume
@@ -440,7 +467,7 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
 
     matricula = _current_matricula()
     profile = (
-        await asyncio.to_thread(lambda: load_profile(matricula)[0])
+        (await asyncio.to_thread(_course_profile_sync, matricula))[0]
         if matricula
         else StudentProfile()
     )
@@ -459,6 +486,9 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
     # Threads from before smart titles (or opened with a greeting / a
     # button click) still carry a useless name - retitle on the next turn.
     cl.user_session.set("titled", not needs_title(thread.get("name")))
+    # A resumed thread keeps whatever course tag it has (or none, if it
+    # predates tagging) - never relabel an old conversation.
+    cl.user_session.set("course_tagged", True)
 
 
 def _short_ref_label(metadata: dict) -> str:
@@ -606,6 +636,27 @@ async def _set_thread_title(final_state):
         logger.warning("Could not update thread title", exc_info=True)
 
 
+# ---------------- COURSE TAG ----------------
+async def _tag_thread_course():
+    """
+    Background task: record this deployment's course in the new thread's
+    metadata, so the profiler only ever reads conversations from the
+    current course (utils/student_profile.latest_other_thread).
+    """
+    thread_id = _safe_thread_id()
+    data_layer = _chainlit_data_layer()
+
+    if not thread_id or data_layer is None:
+        return
+
+    try:
+        await data_layer.update_thread(
+            thread_id=thread_id, metadata={COURSE_METADATA_KEY: DISCIPLINE}
+        )
+    except Exception:  # noqa: BLE001 - worst case the profiler skips it
+        logger.warning("Could not tag thread with its course", exc_info=True)
+
+
 # ---------------- TURN ----------------
 @cl.on_message
 async def on_message(message: cl.Message):
@@ -671,6 +722,10 @@ async def on_message(message: cl.Message):
                 study_session,
                 reply.id,
             )
+
+        if not cl.user_session.get("course_tagged"):
+            cl.user_session.set("course_tagged", True)
+            asyncio.create_task(_tag_thread_course())
 
         # Title from the first real question, not from a greeting - in the
         # background so the student never waits on it.

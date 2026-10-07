@@ -290,7 +290,7 @@ def render_metrics_panel() -> None:
 
     _render_coverage(df, discipline)
 
-    _render_study(db_path)
+    _render_study(db_path, discipline)
 
     with st.expander("Ver dados brutos"):
         st.dataframe(df, width="stretch", hide_index=True)
@@ -356,7 +356,7 @@ _STUDY_LABELS = {
 }
 
 
-def _render_study(metrics_db: Path) -> None:
+def _render_study(metrics_db: Path, discipline: str | None) -> None:
     st.markdown("---")
     st.markdown("### Estudo de personalização")
     st.caption(
@@ -367,7 +367,7 @@ def _render_study(metrics_db: Path) -> None:
     )
 
     try:
-        sessions = build_sessions(metrics_db, metrics_db.parent / "chainlit.db")
+        sessions = build_sessions(metrics_db, metrics_db.parent / "chainlit.db", discipline)
     except Exception as exc:  # noqa: BLE001 - surface any read error
         st.info(f"Ainda sem dados do estudo ({exc}).")
         return

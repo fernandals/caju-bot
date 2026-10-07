@@ -86,6 +86,14 @@ class StudentProfile(BaseModel):
         description="ISO timestamp of the last profiler update. System-managed.",
     )
 
+    course: Optional[str] = Field(
+        default=None,
+        description=(
+            "Course the topic lists and tutor_note refer to. System-managed "
+            "(utils/student_profile.scope_to_course)."
+        ),
+    )
+
 class LearningState(BaseModel):
     topic: Optional[str] = Field(
         default=None,

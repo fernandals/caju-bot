@@ -695,8 +695,8 @@ RULES:
 - The profile spans many sessions - do not overfit to one conversation.
   A single frustrated moment is not "frustration_tendency: high"; one
   request for a short answer is not "explanation_style: concise".
-- Leave sessions_observed, confidence and last_updated exactly as given;
-  the system manages them.
+- Leave sessions_observed, confidence, last_updated and course exactly as
+  given; the system manages them.
 
 FIELDS:
 - explanation_style: which kind of explanation clearly landed best
