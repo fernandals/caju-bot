@@ -243,6 +243,34 @@ def _turn_citations(final_state) -> list[dict]:
     return citations
 
 
+def thread_trajectory(thread_id: str, db_path: Path = DB_PATH) -> str:
+    """
+    The tutor's own per-turn tracking for one conversation, as plain lines
+    for the profiler (agent/profiler.py) - evidence of what worked. Empty
+    if nothing was recorded (e.g. conversations from before the study).
+    """
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                'SELECT "turnIndex", "topic", "teachingMode", "teachingStage", '
+                '"learningProgress", "frustrationLevel", "strategy", "responseDepth" '
+                'FROM turn_metrics WHERE "threadId" = ? ORDER BY "turnIndex", "createdAt"',
+                (thread_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - the transcript alone still works
+        logger.warning("Could not read trajectory for %s", thread_id, exc_info=True)
+        return ""
+
+    return "\n".join(
+        f"turn {turn}: topic={topic}, stage={stage}{' (direct)' if mode == 'direct' else ''}, "
+        f"progress={progress}, frustration={frustration}, strategy={strategy}, depth={depth}"
+        for turn, topic, mode, stage, progress, frustration, strategy, depth in rows
+    )
+
+
 def _turn_index(final_state) -> int:
     """1-based number of this student turn within the conversation."""
     return sum(

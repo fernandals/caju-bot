@@ -100,6 +100,13 @@ def core_words(text: str | None, subject: str = "") -> set[str]:
     }
 
 
+def shares_word(a: set[str], b: set[str]) -> bool:
+    """At least one core word in common - looser than topics_match, for
+    matching a free-text note ("client-server: thinks the server starts
+    the communication") against the current topic."""
+    return any(_same_word(x, y) for x in a for y in b)
+
+
 def topics_match(a: set[str], b: set[str]) -> bool:
     return bool(a) and bool(b) and (_contains(a, b) or _contains(b, a))
 

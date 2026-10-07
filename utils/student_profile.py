@@ -35,10 +35,10 @@ _MESSAGE_STEP_TYPES = ("user_message", "assistant_message")
 
 # Profile fields about the COURSE, not the learner: they are reset when the
 # deployment switches to a different course. Everything else
-# (explanation_style, responds_to_guiding_questions, frustration_tendency,
-# sessions_observed / confidence) describes how the student learns and
-# carries over.
-_COURSE_FIELDS = ("solid_topics", "shaky_topics", "tutor_note")
+# (explanation_style / stated_style, responds_to_guiding_questions,
+# frustration_tendency, prior_knowledge, sessions_observed / confidence)
+# describes how the student learns and carries over.
+_COURSE_FIELDS = ("solid_topics", "shaky_topics", "misconceptions", "what_clicked", "tutor_note")
 
 
 def scope_to_course(profile: StudentProfile, course: str) -> tuple[StudentProfile, bool]:

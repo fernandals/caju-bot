@@ -15,7 +15,7 @@ not turn them into a lecture. Strategies the student chose by intent
 
 from agent.familiarity import Familiarity
 from agent.state import AnswerPlan, LearningState, StudentProfile, TeachingState
-from agent.teaching import effective_familiarity, profile_confident
+from agent.teaching import effective_familiarity, effective_style
 
 _STUDENT_DRIVEN_STRATEGIES = {"exercise_first", "hint_only"}
 
@@ -25,7 +25,7 @@ def is_explanation_turn(teaching_state: TeachingState) -> bool:
 
 
 def _style(profile: StudentProfile | None) -> str:
-    return profile.explanation_style if profile_confident(profile) else "unknown"  # type: ignore[union-attr]
+    return effective_style(profile)[0]
 
 
 def apply_profile_to_plan(
@@ -42,6 +42,9 @@ def apply_profile_to_plan(
     - style_examples: example_first student -> include an example
     - style_depth: concise caps depth at medium; detailed raises it to at
       least medium (deep when comprehension is low)
+    - stated_style: added next to a style_* lever when the style came from
+      the student's own answer to the first-conversation question, not
+      from the profiler (agent/teaching.effective_style)
     """
     if not is_explanation_turn(teaching_state) or plan.strategy in _STUDENT_DRIVEN_STRATEGIES:
         return plan, []
@@ -76,6 +79,9 @@ def apply_profile_to_plan(
 
     if not updates:
         return plan, []
+
+    if effective_style(profile)[1] == "stated" and any(l.startswith("style_") for l in levers):
+        levers.append("stated_style")
 
     return plan.model_copy(update=updates), levers
 

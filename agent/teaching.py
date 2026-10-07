@@ -44,6 +44,12 @@ GUIDED_TURN_CAP_SHAKY = 3
 # questions.
 GUIDED_TURN_CAP_POOR_GUIDING = MIN_GUIDED_ATTEMPTS
 
+# In-session adaptation (no profile needed): once this many guided arcs in
+# the CURRENT conversation have ended with the student stuck, and none
+# with the topic mastered, guiding is not working today - the cap drops to
+# the minimum for the rest of the conversation.
+SESSION_STUCK_ARCS = 2
+
 
 def profile_confident(profile: StudentProfile | None) -> bool:
     return profile is not None and profile.confidence >= PROFILE_CONFIDENCE_FLOOR
@@ -63,6 +69,34 @@ def _guiding_questions_ineffective(profile: StudentProfile | None) -> bool:
     )
 
 
+def effective_style(profile: StudentProfile | None) -> tuple[str, str | None]:
+    """
+    (explanation style to apply, where it came from: "observed" /
+    "stated" / None). The profiler's observed style wins once the profile
+    is confident; before that, what the student chose when asked in their
+    first conversation applies right away - it is their own answer, not
+    an inference that needs evidence.
+    """
+    if profile is None:
+        return "unknown", None
+
+    if profile_confident(profile) and profile.explanation_style != "unknown":
+        return profile.explanation_style, "observed"
+
+    if profile.stated_style != "unknown":
+        return profile.stated_style, "stated"
+
+    return "unknown", None
+
+
+def session_struggling(teaching_state: TeachingState) -> bool:
+    """Guiding has repeatedly failed in this conversation."""
+    return (
+        teaching_state.session_arcs_stuck >= SESSION_STUCK_ARCS
+        and teaching_state.session_arcs_mastered == 0
+    )
+
+
 def effective_familiarity(
     familiarity: Familiarity, profile: StudentProfile | None
 ) -> Familiarity:
@@ -70,9 +104,16 @@ def effective_familiarity(
     return familiarity if profile_confident(profile) else "new"
 
 
-def guided_turn_cap(profile: StudentProfile | None, familiarity: Familiarity = "new") -> int:
+def guided_turn_cap(
+    profile: StudentProfile | None,
+    familiarity: Familiarity = "new",
+    struggling_this_session: bool = False,
+) -> int:
     """Guided turns before conceding, for this student on this topic."""
     cap = GUIDED_TURN_CAP
+
+    if struggling_this_session:
+        cap = min(cap, MIN_GUIDED_ATTEMPTS)
 
     if effective_familiarity(familiarity, profile) == "shaky":
         cap = min(cap, GUIDED_TURN_CAP_SHAKY)
@@ -88,6 +129,7 @@ def advance_teaching_state(
     learning_state: LearningState,
     student_profile: StudentProfile | None = None,
     familiarity: Familiarity = "new",
+    adapt_in_session: bool = True,
 ) -> TeachingState:
     """
     Deterministically computes the next TeachingState from the just-updated
@@ -110,6 +152,11 @@ def advance_teaching_state(
       and to the minimum for a student who does poorly with guiding
       questions - never below MIN_GUIDED_ATTEMPTS;
     - on a solid topic one correct reply is enough to recap and move on.
+
+    `adapt_in_session` (off in the study's "off" arm): once guiding has
+    ended stuck SESSION_STUCK_ARCS times in this conversation with nothing
+    mastered, the cap drops to the minimum for the rest of it. The
+    counters live on the TeachingState and survive topic changes.
     """
 
     anchor = (learning_state.topic, learning_state.subtopic)
@@ -129,6 +176,8 @@ def advance_teaching_state(
             mode="direct" if escape else "guided",
             stage="deepen" if escape else "introduce",
             turns_in_stage=0,
+            session_arcs_stuck=previous.session_arcs_stuck,
+            session_arcs_mastered=previous.session_arcs_mastered,
         )
 
     if escape:
@@ -183,7 +232,12 @@ def advance_teaching_state(
             and guided_turns >= replies_to_confirm_mastery
         ):
             return previous.model_copy(
-                update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0}
+                update={
+                    "mode": "guided",
+                    "stage": "wrap_up",
+                    "turns_in_stage": 0,
+                    "session_arcs_mastered": previous.session_arcs_mastered + 1,
+                }
             )
 
         # `stuck` concedes to the full explanation - but NOT on the
@@ -205,12 +259,19 @@ def advance_teaching_state(
         # above already handled that) keeps being guided rather than
         # handed the answer.
         concede = stuck_after_a_nudge or guided_turns >= guided_turn_cap(
-            student_profile, familiar
+            student_profile,
+            familiar,
+            struggling_this_session=adapt_in_session and session_struggling(previous),
         )
 
         if concede:
             return previous.model_copy(
-                update={"mode": "guided", "stage": "deepen", "turns_in_stage": 0}
+                update={
+                    "mode": "guided",
+                    "stage": "deepen",
+                    "turns_in_stage": 0,
+                    "session_arcs_stuck": previous.session_arcs_stuck + int(stuck_after_a_nudge),
+                }
             )
 
         # Still engaged, not there yet -> ask the next guiding question.
@@ -239,6 +300,7 @@ def personalization_trace(
     student_profile: StudentProfile | None,
     proposed: TeachingState,
     familiarity: Familiarity = "new",
+    adapt_in_session: bool = True,
 ) -> dict:
     """
     What the student profile did to THIS turn's pacing, for the
@@ -248,7 +310,8 @@ def personalization_trace(
       ("early_frustration_escape" = the lowered threshold is what tripped
       the escape; "poor_guiding_short_arc" / "shaky_topic_short_arc" = a
       lowered guided-turn cap; "solid_topic_fast_mastery" = one correct
-      reply is enough on this topic).
+      reply is enough on this topic; "session_short_arc" = guiding kept
+      failing in this conversation, so the cap is at the minimum).
     - pacing_changed: whether `proposed` differs from what the same turn
       would have produced with no profile. One-step counterfactual only:
       once pacing diverges, later turns start from different states.
@@ -271,7 +334,10 @@ def personalization_trace(
     elif familiar == "solid":
         levers.append("solid_topic_fast_mastery")
 
-    baseline = advance_teaching_state(previous, learning_state, None)
+    if adapt_in_session and session_struggling(previous):
+        levers.append("session_short_arc")
+
+    baseline = advance_teaching_state(previous, learning_state, None, adapt_in_session=False)
 
     return {
         "levers": levers,

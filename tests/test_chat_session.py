@@ -12,6 +12,7 @@ from agent.titler import MAX_TITLE_CHARS, clean_title
 from utils.chat_session import needs_title, truncate_for_edit
 from utils.quick_replies import (
     ACTION_NAME,
+    STYLE_ACTION_NAME,
     DONT_KNOW,
     EXAMPLE,
     EXERCISE,
@@ -115,7 +116,7 @@ class TestTruncateForEdit:
 
 
 class TestNeedsTitle:
-    @pytest.mark.parametrize("name", [None, "", "olá!", "oi", ACTION_NAME])
+    @pytest.mark.parametrize("name", [None, "", "olá!", "oi", ACTION_NAME, STYLE_ACTION_NAME])
     def test_useless_default_names(self, name):
         assert needs_title(name)
 

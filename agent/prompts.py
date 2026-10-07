@@ -695,8 +695,13 @@ RULES:
 - The profile spans many sessions - do not overfit to one conversation.
   A single frustrated moment is not "frustration_tendency: high"; one
   request for a short answer is not "explanation_style: concise".
-- Leave sessions_observed, confidence, last_updated and course exactly as
-  given; the system manages them.
+- Leave sessions_observed, confidence, last_updated, course, stated_style
+  and style_asked exactly as given; the system manages them.
+- Besides the transcript you may get "Per-turn signals": the tutor's own
+  tracking for each student turn (teaching stage, progress, frustration,
+  strategy). Use them as evidence of WHAT WORKED - e.g. progress went to
+  "improving"/"mastered" right after an explanation with an example, or
+  the student got "stuck" every time they were only asked questions.
 
 FIELDS:
 - explanation_style: which kind of explanation clearly landed best
@@ -712,6 +717,14 @@ FIELDS:
 - shaky_topics: topics/subtopics they repeatedly struggled with. Drop a
   topic from here (and consider moving it to solid_topics) if this
   conversation shows they now get it.
+- misconceptions: wrong beliefs the student actually VOICED, each short
+  and naming the concept ("client-server: thinks the server starts the
+  communication"). Remove one once they clearly corrected it. Keep ~5.
+- what_clicked: what visibly moved them forward, naming the concept
+  ("pipe-filter: understood after the assembly-line example"). Keep ~5.
+- prior_knowledge: what they showed they know OUTSIDE this course and can
+  build on ("programs in Python"). Only what they mentioned or
+  demonstrated. Keep ~5.
 - tutor_note: 2-3 sentences addressed to the tutor - concrete, actionable
   guidance on how to teach this student well. This is the field the tutor
   actually reads; make it count.

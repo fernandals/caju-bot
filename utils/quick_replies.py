@@ -104,3 +104,23 @@ def quick_replies_for(final_state) -> list[QuickReply]:
         return [HINT, DONT_KNOW]
 
     return _BY_STAGE.get(teaching_state.stage, [])
+
+
+# ---------------- STYLE QUESTION ----------------
+# Asked once, in a student's first conversation (utils/chat_session
+# .should_ask_style), so personalization can start before the profiler has
+# observed anything. The answer is stored as StudentProfile.stated_style.
+STYLE_ACTION_NAME = "style_choice"
+STYLE_QUESTION = "Antes de começar: como você prefere que eu explique?"
+STYLE_SKIP = "skip"
+
+STYLE_CHOICES = [
+    # (label, stated_style value, lucide icon)
+    ("Exemplo primeiro", "example_first", "shapes"),
+    ("Passo a passo", "step_by_step", "list-ordered"),
+    ("Direto ao ponto", "concise", "zap"),
+    ("Explicação completa", "detailed", "book-open"),
+    ("Pular", STYLE_SKIP, "skip-forward"),
+]
+
+STYLE_LABELS = {value: label for label, value, _ in STYLE_CHOICES}

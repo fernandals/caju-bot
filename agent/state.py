@@ -61,6 +61,35 @@ class StudentProfile(BaseModel):
         ),
     )
 
+    misconceptions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Wrong beliefs the student has voiced about specific concepts, "
+            "each short and concrete, naming the concept (e.g. "
+            "'client-server: thinks the server starts the communication'). "
+            "Only beliefs actually voiced, not guesses. Drop one once the "
+            "student has clearly corrected it."
+        ),
+    )
+
+    what_clicked: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Explanations, examples or kinds of question that visibly moved "
+            "this student forward, naming the concept (e.g. 'pipe-filter: "
+            "understood after the assembly-line example from the material')."
+        ),
+    )
+
+    prior_knowledge: list[str] = Field(
+        default_factory=list,
+        description=(
+            "What the student has shown they know OUTSIDE this course and "
+            "can build on (e.g. 'programs in Python', 'knows basic "
+            "networking'). Only what they mentioned or demonstrated."
+        ),
+    )
+
     tutor_note: str = Field(
         default="",
         description=(
@@ -92,6 +121,22 @@ class StudentProfile(BaseModel):
             "Course the topic lists and tutor_note refer to. System-managed "
             "(utils/student_profile.scope_to_course)."
         ),
+    )
+
+    stated_style: Literal[
+        "concise", "detailed", "example_first", "step_by_step", "unknown"
+    ] = Field(
+        default="unknown",
+        description=(
+            "Explanation style the student CHOSE when asked in their first "
+            "conversation. System-managed - set by the app, never by the "
+            "profiler."
+        ),
+    )
+
+    style_asked: bool = Field(
+        default=False,
+        description="Whether the student already answered (or skipped) the style question. System-managed.",
     )
 
 class LearningState(BaseModel):
@@ -198,6 +243,19 @@ class TeachingState(BaseModel):
     turns_in_stage: int = Field(
         default=0,
         description="How many consecutive turns have been spent in the current stage.",
+    )
+
+    # Conversation-level, carried across topic changes (agent/teaching.py,
+    # in-session adaptation): how guided arcs ended so far in THIS
+    # conversation.
+    session_arcs_stuck: int = Field(
+        default=0,
+        description="Guided arcs in this conversation that ended because the student was stuck.",
+    )
+
+    session_arcs_mastered: int = Field(
+        default=0,
+        description="Guided arcs in this conversation that ended with the student mastering the topic.",
     )
 
 class AnswerPlan(BaseModel):
@@ -347,5 +405,15 @@ class TutorState(MessagesState):
     # {"levers": [...], "pacing_changed": bool, "plan_changed": bool,
     #  "profile_in_prompt": bool, "familiarity": "solid" | "shaky" | "new"}
     personalization: dict
+
+    # False in the study's "off" arm (utils/personalization.py): also turns
+    # off adaptation that is not profile-based (in-session adaptation in
+    # agent/teaching.py). Missing = on (CLI, tests).
+    personalization_on: bool
+
+    # What the profile knows about THIS topic (misconceptions, what worked
+    # before, an analogy bridge), picked in code by plan_instruction and
+    # repeated to the generator right before the reply (agent/profile_notes.py).
+    profile_notes: list[str]
 
     evidence: list[ChunkEvidence] = Field(default_factory=list) # type: ignore

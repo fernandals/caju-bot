@@ -36,17 +36,24 @@ Além do estado por conversa, o app do aluno mantém um **perfil de
 aprendizagem por matrícula** entre sessões (`agent/profiler.py`,
 `utils/student_profile.py`): estilo de explicação preferido, se responde
 bem a perguntas socráticas, tendência a frustração, tópicos já dominados
-/ ainda difíceis, e uma nota curta pro tutor. É atualizado **uma vez por
-sessão** — no início de cada conversa, um modelo relê a conversa anterior
-do aluno e mescla no perfil (persistido em `data/chats/student_profiles.db`).
+/ ainda difíceis, concepções erradas que já expressou, o que funcionou com
+ele, o que já sabe de fora da disciplina, e uma nota curta pro tutor. É
+atualizado **uma vez por sessão** — no início de cada conversa, um modelo
+relê a conversa anterior do aluno (e os sinais por turno do tutor) e
+mescla no perfil (persistido em `data/chats/student_profiles.db`). Na
+primeira conversa o aluno escolhe como prefere as explicações, o que já
+vale de imediato; a personalização observada liga a partir da 2ª
+conversa.
 O perfil entra no prompt de geração e, por regras em código (sem chamada
 de modelo), ajusta o ritmo e o plano da resposta: limite de perguntas
 guiadas por aluno/tópico (sempre ao menos 2 antes de explicar), tópico já
 dominado fecha mais cedo, tópico difícil ganha explicação passo a passo,
 e o estilo preferido (exemplo primeiro, passo a passo, conciso,
 detalhado) molda as explicações (`agent/teaching.py`,
-`agent/plan_profile.py`, `agent/familiarity.py`). Nunca é alterado
-durante a conversa.
+`agent/plan_profile.py`, `agent/familiarity.py`); o que o perfil sabe
+sobre o tópico atual vai junto da instrução do turno
+(`agent/profile_notes.py`). Nunca é alterado durante a conversa. Ao
+retomar uma conversa pela barra lateral, o tutor continua de onde parou.
 
 ## Rodando localmente
 

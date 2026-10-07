@@ -18,6 +18,7 @@ from agent.state import (
 )
 from agent.familiarity import topic_familiarity
 from agent.plan_profile import apply_profile_to_plan, leads_with_example
+from agent.profile_notes import select_profile_notes
 from agent.teaching import (
     advance_teaching_state,
     effective_familiarity,
@@ -213,11 +214,15 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     # matching (agent/familiarity.py), no LLM call.
     familiarity = topic_familiarity(learning_state, student_profile, config.subject)
 
+    # False in the study's "off" arm: no in-session adaptation either.
+    adapt = state.get("personalization_on", True)
+
     proposed_teaching_state = advance_teaching_state(
         previous_teaching_state,
         learning_state,
         student_profile,
         familiarity,
+        adapt_in_session=adapt,
     )
 
     personalization = personalization_trace(
@@ -226,6 +231,7 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
         student_profile,
         proposed_teaching_state,
         familiarity,
+        adapt_in_session=adapt,
     )
     personalization["familiarity"] = effective_familiarity(familiarity, student_profile)
     personalization["profile_in_prompt"] = (
@@ -299,10 +305,18 @@ Recent conversation:
     personalization["levers"] += plan_levers
     personalization["plan_changed"] = bool(plan_levers)
 
+    # What the profile knows about THIS topic, for the generator's turn
+    # reminder (agent/profile_notes.py).
+    profile_notes, note_levers = select_profile_notes(
+        student_profile, learning_state, teaching_state, config.subject
+    )
+    personalization["levers"] += note_levers
+
     result = {
         "answer_plan": answer_plan,
         "teaching_state": teaching_state,
         "personalization": personalization,
+        "profile_notes": profile_notes,
         # Clear the greeting flag a previous small-talk turn may have left
         # in the persisted session state - this is a real teaching turn.
         "greeted": False,
@@ -543,12 +557,19 @@ EVIDENCE
     # mid-way through the long system prompt they lose to the pattern of
     # the recent dialogue: a single earlier tutor turn ending in a question
     # was enough for the model to keep asking questions in DIRECT MODE.
-    turn_reminder = SystemMessage(
-        content=(
-            "Instructions for THIS reply (they take precedence over the "
-            "pattern of earlier turns):\n" + teaching_instructions
-        )
+    reminder = (
+        "Instructions for THIS reply (they take precedence over the "
+        "pattern of earlier turns):\n" + teaching_instructions
     )
+
+    # What the profile knows about this topic (picked in plan_instruction).
+    # Here, at the end of the context, rather than in the long system
+    # prompt - that is where the model actually follows instructions.
+    profile_notes = state.get("profile_notes") or []
+    if profile_notes:
+        reminder += "\n\nAbout this student:\n" + "\n".join(f"- {n}" for n in profile_notes)
+
+    turn_reminder = SystemMessage(content=reminder)
 
     response = model.invoke(
         [system_prompt]
@@ -591,6 +612,11 @@ def render_student_profile(profile: StudentProfile) -> str:
 
     if profile.explanation_style in _STYLE_PHRASING:
         parts.append(_STYLE_PHRASING[profile.explanation_style])
+    elif profile.stated_style in _STYLE_PHRASING:
+        parts.append(f"Said so themselves: {_STYLE_PHRASING[profile.stated_style]}")
+
+    if profile.prior_knowledge:
+        parts.append(f"Knows from outside this course: {'; '.join(profile.prior_knowledge)}.")
 
     if profile.responds_to_guiding_questions == "poorly":
         parts.append("Does not respond well to being asked guiding questions - be more direct.")

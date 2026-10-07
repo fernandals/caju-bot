@@ -552,3 +552,67 @@ conversas antigas.
   `export_study --discipline` comparam um curso por vez.
 - Verificado no app isolado: perfil semeado de "Cálculo I" perdeu
   tópicos/nota, manteve estilo e confiança; thread marcada com o curso.
+
+---
+
+## 📅 Data
+- **2026-10-07** (adaptar mais cedo, ao entendimento, e sem perder a conversa)
+
+### ✅ Mudanças
+**Começar a personalizar mais cedo**
+- Pergunta de estilo na 1ª conversa (botões: exemplo primeiro / passo a
+  passo / direto ao ponto / explicação completa / pular). Vai pra
+  `StudentProfile.stated_style` (gerido pelo sistema) e vale na hora, sem
+  esperar confiança; quando o profiler tem um estilo observado e confiável,
+  o observado vence (`agent/teaching.effective_style`). Só pergunta enquanto
+  `sessions_observed == 0` e até responder/pular.
+- Confiança: 1 conversa → 0.4 (piso), 2 → 0.6, 3 → 0.8, máx 0.9 — a
+  personalização observada liga na **2ª** conversa (antes, na 3ª). Conversa
+  com menos de 3 mensagens do aluno não conta como observação
+  (`agent/profiler.worth_profiling`).
+- Adaptação dentro da conversa: depois de 2 tópicos que terminaram com o
+  aluno travado (e nenhum dominado), o limite de perguntas cai pro mínimo
+  (2) no resto da conversa. Contadores no `TeachingState`, sobrevivem à
+  troca de tópico. Desligada na condição "sem" do estudo
+  (`personalization_on`).
+
+**Perfil sobre o entendimento, não só preferência**
+- Campos novos: `misconceptions` e `what_clicked` (do curso — zerados na
+  troca de disciplina) e `prior_knowledge` (do aluno — mantido).
+- O profiler recebe, além da transcrição, os sinais por turno do tutor
+  daquela conversa (`utils/metrics.thread_trajectory`: estágio, progresso,
+  frustração, estratégia) — evidência do que funcionou. Mesma chamada de
+  sempre, nenhuma a mais.
+- `agent/profile_notes.py`: em código, escolhe as concepções erradas e o
+  que funcionou que casam com o tópico atual (mesmo casador de palavras da
+  familiaridade) e põe na instrução do turno, no fim do contexto.
+- Analogias: em turno de explicação, o tutor pode usar UMA analogia com o
+  que o aluno já sabe (`prior_knowledge`), explicitamente como analogia,
+  nunca como fato da matéria — única exceção à regra de só usar exemplos
+  do material.
+
+**Retomar conversa sem perder o estado**
+- Depois de cada turno, `learning_state` + `teaching_state` vão pro
+  metadata da thread (junto da marca de curso, numa escrita só — o
+  `update_thread` do Chainlit reescreve o metadata inteiro, escritas
+  concorrentes perderiam chaves) e pro `cl.user_session` (que o Chainlit
+  persiste no disconnect). `on_chat_resume` restaura; frustração volta a 0
+  (nova sessão de estudo). Threads antigas retomam do zero, como antes.
+
+**Estudo**: alavancas novas no `profileLevers` — `stated_style`,
+`session_short_arc`, `known_misconception`, `what_clicked`,
+`prior_knowledge_analogy`.
+
+**Verificado no app isolado**: pergunta de estilo aparece só na 1ª conversa,
+clique salva `stated_style` e marca "✓ Passo a passo"; conversa retomada
+continuou em `check` (2 perguntas contadas) em vez de recomeçar no
+`introduce`. Título "style_choice" (nome que o Chainlit dá à thread
+iniciada por clique) entra na regra de retitular.
+
+### ⚠️ Limitações
+- As notas de tópico dependem do profiler nomear o conceito em cada item
+  (o prompt pede); item sem conceito nunca casa.
+- A exceção de analogia relaxa o aterramento — vale acompanhar respostas
+  com `prior_knowledge_analogy` no estudo.
+- Estado restaurado é o do último turno salvo; se o servidor cair no meio
+  de um turno, retoma do anterior.

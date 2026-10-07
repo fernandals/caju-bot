@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.chat_pipeline import load_pipeline
 from agent.nodes import latest_student_question
-from agent.profiler import profile_student
+from agent.profiler import profile_student, worth_profiling
 from agent.state import StudentProfile, TutorState
 from agent.titler import generate_title
 from rag.knowledge_base import (
@@ -21,17 +21,35 @@ from rag.knowledge_base import (
     list_knowledge_bases,
     resolve_source_pdf,
 )
-from utils.chat_session import needs_title, truncate_for_edit
+from utils.chat_session import (
+    TUTOR_STATE_KEY,
+    needs_title,
+    restore_tutor_state,
+    should_ask_style,
+    truncate_for_edit,
+    tutor_state_snapshot,
+)
 from utils.citations import highlight_citations
 from utils.helpers import is_enrolled, load_roster
 from utils.metrics import (
     ensure_metrics_schema,
+    thread_trajectory,
     load_study_session,
     next_session_index,
     record_turn,
 )
 from utils.personalization import assign_arm
-from utils.quick_replies import ACTION_NAME, STARTERS, QuickReply, quick_replies_for
+from utils.quick_replies import (
+    ACTION_NAME,
+    STARTERS,
+    STYLE_ACTION_NAME,
+    STYLE_CHOICES,
+    STYLE_LABELS,
+    STYLE_QUESTION,
+    STYLE_SKIP,
+    QuickReply,
+    quick_replies_for,
+)
 from utils.student_profile import (
     ensure_profile_schema,
     COURSE_METADATA_KEY,
@@ -338,7 +356,22 @@ def _refresh_profile_sync(matricula: str, current_thread_id: str | None) -> Stud
     if thread_id == last_profiled:
         return profile
 
-    updated = profile_student(profile, transcript)
+    if not worth_profiling(transcript):
+        # Too short to learn from: mark it seen so it is not reconsidered,
+        # without counting it as an observation.
+        save_profile(matricula, profile, thread_id)
+        return profile
+
+    updated = profile_student(profile, transcript, trajectory=thread_trajectory(thread_id))
+
+    # The profiler can outlive on_chat_start's wait (shielded); if the
+    # student answered the style question meanwhile, keep their answer.
+    current, _ = load_profile(matricula)
+    if current.style_asked:
+        updated = updated.model_copy(
+            update={"stated_style": current.stated_style, "style_asked": True}
+        )
+
     save_profile(matricula, updated, thread_id)
 
     return updated
@@ -421,7 +454,11 @@ async def on_chat_start():
     cl.user_session.set("study_session", study_session)
     cl.user_session.set(
         "state",
-        TutorState(messages=[tutor_prompt], student_profile=tutor_profile),  # type: ignore
+        TutorState(
+            messages=[tutor_prompt],
+            student_profile=tutor_profile,
+            personalization_on=study_session["arm"] == "on",
+        ),  # type: ignore
     )
 
     user = cl.user_session.get("user")
@@ -441,16 +478,29 @@ async def on_chat_start():
     cl.user_session.set("titled", False)
     cl.user_session.set("course_tagged", False)
 
+    # First conversations only: ask how they like explanations, so the
+    # tutor can adapt before the profiler has observed anything.
+    if matricula and should_ask_style(profile):
+        question = cl.Message(
+            content=STYLE_QUESTION,
+            actions=[
+                cl.Action(name=STYLE_ACTION_NAME, payload={"style": value}, label=label, icon=icon)
+                for label, value, icon in STYLE_CHOICES
+            ],
+        )
+        await question.send()
+        cl.user_session.set("style_message", question)
+
 
 @cl.on_chat_resume
 async def on_chat_resume(thread: cl.types.ThreadDict):
     """
-    Rebuilds the LangGraph state from a resumed thread's message history.
-    Same lossy-resume tradeoff as the old Streamlit app: only the message
-    list is restored, learning_state/teaching_state/evidence reset fresh -
-    Chainlit's UI still replays the full step history for display
-    regardless. The persistent student_profile IS restored (from its own
-    store), but a resume does not trigger a profiler refresh. The
+    Rebuilds the LangGraph state from a resumed thread's message history,
+    plus the learning/teaching state saved after its last turn
+    (utils/chat_session.restore_tutor_state; frustration reset). Evidence
+    is not restored - it is per turn anyway. The persistent
+    student_profile IS restored (from its own store), but a resume does
+    not trigger a profiler refresh. The
     conversation keeps its personalization arm (utils/personalization.py).
     """
     graph, tutor_prompt, _config = _get_pipeline()
@@ -476,11 +526,21 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
         matricula, profile, resumed_thread_id=thread.get("id")
     )
 
+    # Continue where the conversation stopped (topic, progress, place in
+    # the guided arc) instead of restarting the arc on the same topic.
+    # Threads from before this was saved resume fresh.
+    restored = restore_tutor_state(thread.get("metadata"))
+
     cl.user_session.set("graph", graph)
     cl.user_session.set("study_session", study_session)
     cl.user_session.set(
         "state",
-        TutorState(messages=messages, student_profile=tutor_profile),  # type: ignore
+        TutorState(
+            messages=messages,
+            student_profile=tutor_profile,
+            personalization_on=study_session["arm"] == "on",
+            **restored,
+        ),  # type: ignore
     )
 
     # Threads from before smart titles (or opened with a greeting / a
@@ -636,25 +696,83 @@ async def _set_thread_title(final_state):
         logger.warning("Could not update thread title", exc_info=True)
 
 
-# ---------------- COURSE TAG ----------------
-async def _tag_thread_course():
+# ---------------- THREAD METADATA ----------------
+async def _persist_turn_metadata(final_state):
     """
-    Background task: record this deployment's course in the new thread's
-    metadata, so the profiler only ever reads conversations from the
-    current course (utils/student_profile.latest_other_thread).
+    After each turn, save the tutor's state in the thread metadata (for
+    on_chat_resume) and, on a new thread's first turn, its course (so the
+    profiler only reads conversations from the current course - see
+    utils/student_profile.latest_other_thread).
+
+    One write per turn, awaited: Chainlit's update_thread rewrites the
+    whole metadata, so concurrent writers would drop each other's keys.
+    The snapshot also goes into cl.user_session, which Chainlit itself
+    persists into the same metadata on disconnect - keeping both in sync
+    so that write never puts back an older one.
     """
+    metadata = {}
+
+    snapshot = tutor_state_snapshot(final_state)
+    if snapshot is not None:
+        metadata[TUTOR_STATE_KEY] = snapshot
+        cl.user_session.set(TUTOR_STATE_KEY, snapshot)
+
+    if not cl.user_session.get("course_tagged"):
+        metadata[COURSE_METADATA_KEY] = DISCIPLINE
+
     thread_id = _safe_thread_id()
     data_layer = _chainlit_data_layer()
 
-    if not thread_id or data_layer is None:
+    if not metadata or not thread_id or data_layer is None:
         return
 
     try:
-        await data_layer.update_thread(
-            thread_id=thread_id, metadata={COURSE_METADATA_KEY: DISCIPLINE}
-        )
-    except Exception:  # noqa: BLE001 - worst case the profiler skips it
-        logger.warning("Could not tag thread with its course", exc_info=True)
+        await data_layer.update_thread(thread_id=thread_id, metadata=metadata)
+        cl.user_session.set("course_tagged", True)
+    except Exception:  # noqa: BLE001 - worst case: resume fresh / profiler skips it
+        logger.warning("Could not save thread metadata", exc_info=True)
+
+
+# ---------------- STYLE QUESTION ----------------
+@cl.action_callback(STYLE_ACTION_NAME)
+async def on_style_choice(action: cl.Action):
+    """
+    The student's answer to the first-conversation style question: stored
+    as StudentProfile.stated_style, applied from this turn on (in the
+    "on" arm). Not a chat turn - nothing goes through the tutor.
+    """
+    matricula = _current_matricula()
+    if not matricula:
+        return
+
+    choice = action.payload.get("style", STYLE_SKIP)
+
+    def _save() -> StudentProfile:
+        profile, last_profiled, _ = _course_profile_sync(matricula)
+        update = {"style_asked": True}
+        if choice != STYLE_SKIP:
+            update["stated_style"] = choice
+        profile = profile.model_copy(update=update)
+        save_profile(matricula, profile, last_profiled)
+        return profile
+
+    profile = await asyncio.to_thread(_save)
+
+    study_session = cl.user_session.get("study_session") or {}
+    study_session["profile"] = profile
+    state = cl.user_session.get("state")
+    if state is not None and study_session.get("arm") == "on":
+        state["student_profile"] = profile
+
+    question = cl.user_session.get("style_message")
+    cl.user_session.set("style_message", None)
+    if question is not None:
+        try:
+            await question.remove_actions()
+            question.content = f"{STYLE_QUESTION}\n\n✓ {STYLE_LABELS.get(choice, choice)}"
+            await question.update()
+        except Exception:  # noqa: BLE001 - cosmetic
+            pass
 
 
 # ---------------- TURN ----------------
@@ -723,9 +841,7 @@ async def on_message(message: cl.Message):
                 reply.id,
             )
 
-        if not cl.user_session.get("course_tagged"):
-            cl.user_session.set("course_tagged", True)
-            asyncio.create_task(_tag_thread_course())
+        await _persist_turn_metadata(final_state)
 
         # Title from the first real question, not from a greeting - in the
         # background so the student never waits on it.
