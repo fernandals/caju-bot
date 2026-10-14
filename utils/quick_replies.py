@@ -16,6 +16,9 @@ handling as before.
 
 from typing import NamedTuple
 
+from agent.graph import is_topics_request
+from agent.nodes import latest_student_question
+
 
 class QuickReply(NamedTuple):
     label: str
@@ -79,6 +82,10 @@ _BY_STAGE = {
 def quick_replies_for(final_state) -> list[QuickReply]:
     """Buttons to attach to the tutor's reply for this finished turn."""
     if final_state.get("greeted"):
+        # Just listed the topics (agent/nodes.list_topics) - no point
+        # offering the same list again.
+        if is_topics_request(latest_student_question(final_state.get("messages") or [])):
+            return [r for r in STARTERS if r is not TOPICS]
         return STARTERS
 
     teaching_state = final_state.get("teaching_state")

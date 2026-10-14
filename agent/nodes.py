@@ -197,6 +197,28 @@ def greet(state: TutorState, config: TutorConfig, model):
     return {"messages": [response], "greeted": True}
 
 
+@node("TOPICS")
+def list_topics(state: TutorState, config: TutorConfig):
+    """
+    Answers "what can I study?" with the course outline (agent/outline.py,
+    routed by agent/graph.route_start). Fixed text, no model call. Flagged
+    as `greeted` like the greeting fast path: not a pedagogical turn, so
+    no metrics row and no thread title, and it doesn't touch the arc.
+    """
+    topics = "\n".join(f"{i}. {t}" for i, t in enumerate(config.course_outline, 1))
+
+    reply = AIMessage(
+        content=(
+            f"Estes são os principais assuntos de **{config.subject}** que "
+            f"podemos estudar juntos:\n\n{topics}\n\n"
+            f"Por qual deles você quer começar? Pode também me perguntar "
+            f"direto sobre uma dúvida específica."
+        )
+    )
+
+    return {"messages": [reply], "greeted": True}
+
+
 @node("PLANNING")
 def plan_instruction(state: TutorState, config: TutorConfig, model):
     """

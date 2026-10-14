@@ -384,6 +384,15 @@ class TutorConfig(BaseModel):
         description="Approximate maximum number of sentences expected in the tutor response."
     )
 
+    course_outline: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The course's main topics, in teaching order (agent/outline.py) - "
+            "what the tutor lists when asked what can be studied. Empty "
+            "when it couldn't be built."
+        )
+    )
+
 class TutorState(MessagesState):
     student_profile: StudentProfile
 

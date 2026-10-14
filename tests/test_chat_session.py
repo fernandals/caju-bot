@@ -59,6 +59,15 @@ class TestQuickReplies:
     def test_greeting_turn_offers_starters(self):
         assert quick_replies_for(turn(greeted=True)) == STARTERS
 
+    def test_topic_list_turn_offers_other_starters(self):
+        state = turn(greeted=True)
+        state["messages"] = [HumanMessage(content=TOPICS.message)]
+
+        result = quick_replies_for(state)
+
+        assert TOPICS not in result
+        assert result == [r for r in STARTERS if r is not TOPICS]
+
     def test_no_topic_yet_offers_topic_list(self):
         state = turn(stage="deepen", mode="direct")
         state["learning_state"] = LearningState(topic=None)

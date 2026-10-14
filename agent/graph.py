@@ -10,6 +10,7 @@ from agent.nodes import (
     generate_answer,
     greet,
     latest_student_question,
+    list_topics,
     plan_instruction,
     retrieve_documents,
     update_tracking,
@@ -37,9 +38,54 @@ _SMALLTALK_RE = re.compile(
 )
 
 
+# "What can I study?" - the TOPICS starter button's own message, or the
+# same question typed. Answered from the course outline (list_topics),
+# not by the teaching pipeline: guided teaching would answer with a
+# question back. Kept narrow - a topic-specific "o que é X?" must not
+# match - and anchored to the whole message.
+_TOPICS_RE = re.compile(
+    r"(?:e\s+)?"
+    r"(?:"
+    # "quais (são os) assuntos/tópicos/conteúdos (da disciplina) (posso estudar com você)"
+    r"(?:quais|que)\s+(?:s[ãa]o\s+)?(?:os\s+)?"
+    r"(?:assuntos|t[óo]picos|temas|conte[úu]dos)"
+    r"(?:\s+(?:da|de|do|dessa|desta)\s+(?:disciplina|mat[ée]ria|curso|cadeira))?"
+    r"(?:\s+(?:que\s+)?(?:eu\s+)?(?:posso|d[áa]\s+p(?:ra|ara)|consigo|podemos|vamos)\s+"
+    r"(?:estudar|ver|aprender|revisar))?"
+    r"|"
+    # "o que (eu) posso estudar"
+    r"o\s+que\s+(?:eu\s+)?(?:posso|d[áa]\s+p(?:ra|ara)|consigo|podemos)\s+(?:estudar|aprender)"
+    r")"
+    r"(?:\s+(?:com\s+voc[êe]|aqui))?"
+    r"(?:\s+(?:nessa|nesta|na)\s+(?:disciplina|mat[ée]ria|cadeira))?"
+    r"[\s?!.]*",
+    re.IGNORECASE,
+)
+
+
+def is_topics_request(text: str | None) -> bool:
+    """Whole message asks which topics the course covers."""
+    return bool(text) and bool(_TOPICS_RE.fullmatch(text.strip()))
+
+
 def is_smalltalk(text: str | None) -> bool:
     """Whole message is only a greeting / acknowledgement / sign-off."""
     return bool(text) and bool(_SMALLTALK_RE.match(text.strip()))
+
+
+def route_start(state: TutorState, config: TutorConfig):
+    """
+    "What can I study?" is answered straight from the course outline -
+    before tracking, so it neither costs a tracking call nor leaves a
+    vague "the whole course" topic in the learning state. Without an
+    outline it goes through the normal pipeline.
+    """
+    if config.course_outline and is_topics_request(
+        latest_student_question(state["messages"])
+    ):
+        return "list_topics"
+
+    return "tracking"
 
 
 def route_after_tracking(state: TutorState):
@@ -74,12 +120,22 @@ def build_graph(config: TutorConfig, retriever, models) -> CompiledStateGraph:
 
     graph.add_node("tracking", partial(update_tracking, model=models.tracking_llm))
     graph.add_node("greet", partial(greet, config=config, model=models.generation_llm))
+    graph.add_node("list_topics", partial(list_topics, config=config))
     graph.add_node("planning", partial(plan_instruction, config=config, model=models.planning_llm))
     graph.add_node("retrieve", partial(retrieve_documents, retriever=retriever))
     graph.add_node("assess_documents", partial(assess_documents, config=config, model=models.grading_llm))
     graph.add_node("generate_answer", partial(generate_answer, config=config, model=models.generation_llm))
 
-    graph.add_edge(START, "tracking")
+    graph.add_conditional_edges(
+        START,
+        partial(route_start, config=config),
+        {
+            "list_topics": "list_topics",
+            "tracking": "tracking",
+        },
+    )
+
+    graph.add_edge("list_topics", END)
 
     graph.add_conditional_edges(
         "tracking",

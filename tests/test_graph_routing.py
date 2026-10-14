@@ -10,8 +10,16 @@ planning/retrieval/teaching for that turn, so its edge cases matter.
 
 from langchain_core.messages import HumanMessage
 
-from agent.graph import route_after_planning, route_after_tracking
-from agent.state import AnswerPlan, LearningState
+import pytest
+
+from agent.graph import (
+    is_topics_request,
+    route_after_planning,
+    route_after_tracking,
+    route_start,
+)
+from agent.state import AnswerPlan, LearningState, TutorConfig
+from utils.quick_replies import TOPICS
 
 
 def state_with(message: str, learning_state: LearningState | None = None):
@@ -72,3 +80,48 @@ class TestRouteAfterPlanning:
     def test_no_retrieval_routes_to_generate_answer(self):
         state = {"answer_plan": AnswerPlan(needs_retrieval=False, strategy="direct_answer", rationale="r")}
         assert route_after_planning(state) == "generate_answer"
+
+
+class TestTopicsRequest:
+    @pytest.mark.parametrize(
+        "text",
+        [
+            TOPICS.message,
+            "quais são os tópicos?",
+            "Quais os assuntos da matéria?",
+            "que conteúdos posso estudar",
+            "o que posso estudar aqui?",
+            "e quais temas da disciplina podemos ver?",
+            "o que eu posso estudar nessa disciplina",
+        ],
+    )
+    def test_course_wide_question_matches(self, text):
+        assert is_topics_request(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "o que é uma árvore AVL?",
+            "quais assuntos caem na prova de árvores?",
+            "quais tópicos de heap são importantes?",
+            "oi",
+            "",
+            None,
+        ],
+    )
+    def test_topic_specific_question_does_not_match(self, text):
+        assert not is_topics_request(text)
+
+
+class TestRouteStart:
+    def test_topics_request_goes_to_list_topics(self):
+        config = TutorConfig(subject="EDB2", course_outline=["Árvores AVL"])
+        assert route_start(state_with(TOPICS.message), config) == "list_topics"
+
+    def test_without_outline_goes_to_tracking(self):
+        config = TutorConfig(subject="EDB2")
+        assert route_start(state_with(TOPICS.message), config) == "tracking"
+
+    def test_regular_question_goes_to_tracking(self):
+        config = TutorConfig(subject="EDB2", course_outline=["Árvores AVL"])
+        assert route_start(state_with("o que é uma AVL?"), config) == "tracking"

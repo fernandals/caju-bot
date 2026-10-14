@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 import agent.prompts as prompts
 from agent.graph import build_graph
 from agent.models import ModelRegistry
+from agent.outline import load_course_outline
 from agent.state import TutorConfig
 from rag.knowledge_base import load_knowledge_base
 
@@ -88,6 +89,12 @@ def load_pipeline(discipline_name: str):
         planning_llm=_chat(model_names["planning"]),
         grading_llm=_chat(model_names["grading"]),
     )
+
+    # Cached in the KB folder after the first load (agent/outline.py).
+    config.course_outline = load_course_outline(
+        config.subject, config.answer_language, models.planning_llm
+    )
+    logger.info("Course outline: %d topics", len(config.course_outline))
 
     # --------------------------------------------------
     # Build Graph
