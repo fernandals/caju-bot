@@ -25,8 +25,8 @@ pergunta do aluno abaixo.
 Regras:
 - 3 a 6 palavras, em {language}.
 - Nomeie o ASSUNTO (ex.: "Estilo Pipe-Filter", "Cliente-Servidor:
-  escalabilidade", "Revisão para a prova"), não a ação do aluno
-  ("Aluno pergunta sobre...").
+  escalabilidade", "Árvores AVL: revisão para a prova"), não a ação do
+  aluno ("Aluno pergunta sobre...").
 - Sem aspas, sem ponto final, sem emoji.
 - Responda só com o título.
 

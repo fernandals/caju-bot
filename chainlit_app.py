@@ -16,6 +16,7 @@ from agent.graph import is_topics_request
 from agent.nodes import latest_student_question
 from agent.profiler import profile_student, worth_profiling
 from agent.state import StudentProfile, TutorState
+from agent.teaching import is_course_review
 from agent.titler import generate_title
 from rag.knowledge_base import (
     describe_course_materials,
@@ -24,6 +25,7 @@ from rag.knowledge_base import (
 )
 from utils.chat_session import (
     NEW_THREAD_NAME,
+    REVIEW_THREAD_NAME,
     TOPICS_THREAD_NAME,
     TUTOR_STATE_KEY,
     needs_title,
@@ -696,6 +698,10 @@ async def _rename_thread(name: str):
 
 async def _set_thread_title(final_state):
     """Background task: summarize the first real question into the title."""
+    if is_course_review(final_state.get("learning_state")):
+        await _rename_thread(REVIEW_THREAD_NAME)
+        return
+
     question = latest_student_question(final_state["messages"])
     learning_state = final_state.get("learning_state")
     topic = " / ".join(

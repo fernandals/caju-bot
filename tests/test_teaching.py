@@ -11,7 +11,9 @@ Flagged as an obvious test target in PROJECT_LOG.md (2026-09-09 entry).
 import pytest
 
 from agent.state import LearningState, StudentProfile, TeachingState
-from agent.teaching import GUIDED_TURN_CAP, advance_teaching_state
+from agent.nodes import resolve_teaching_instructions
+from agent.prompts import DIRECT_MODE_INSTRUCTIONS
+from agent.teaching import GUIDED_TURN_CAP, advance_teaching_state, is_course_review
 
 
 def learning_state(**kwargs) -> LearningState:
@@ -260,3 +262,33 @@ class TestDeepenAndWrapUp:
 
         assert result.stage == "introduce"
         assert result.turns_in_stage == 0
+
+
+class TestCourseReview:
+    def test_exam_prep_without_topic_is_a_course_review(self):
+        assert is_course_review(learning_state(intent="exam_prep", topic=None))
+
+    def test_exam_prep_on_a_topic_is_not(self):
+        assert not is_course_review(learning_state(intent="exam_prep", topic="Árvores AVL"))
+
+    def test_other_intents_are_not(self):
+        assert not is_course_review(learning_state(intent="review", topic=None))
+        assert not is_course_review(None)
+
+    def test_review_instructions_list_the_outline(self):
+        result = resolve_teaching_instructions(
+            teaching_state(mode="direct"),
+            "direct_answer",
+            course_review=True,
+            course_outline=["Complexidade assintótica", "Árvores AVL"],
+        )
+
+        assert result.startswith("COURSE REVIEW")
+        assert "1. Complexidade assintótica\n2. Árvores AVL" in result
+
+    def test_review_without_outline_falls_back_to_direct_mode(self):
+        result = resolve_teaching_instructions(
+            teaching_state(mode="direct"), "direct_answer", course_review=True
+        )
+
+        assert result == DIRECT_MODE_INSTRUCTIONS

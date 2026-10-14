@@ -20,6 +20,7 @@ from agent.familiarity import topic_familiarity
 from agent.plan_profile import apply_profile_to_plan, leads_with_example
 from agent.profile_notes import select_profile_notes
 from agent.teaching import (
+    is_course_review,
     advance_teaching_state,
     effective_familiarity,
     personalization_trace,
@@ -34,6 +35,22 @@ from rag.models import ChunkMetadata
 # so a long session doesn't re-pay for every earlier turn on every message
 # (planning and generation already window their message slices).
 TRACKING_WINDOW = 12
+
+# A course-wide review retrieves per outline topic, keeping this many
+# chunks from each - so the study guide can cite every part of the course.
+REVIEW_CHUNKS_PER_TOPIC = 2
+REVIEW_TOPIC_KEY = "review_topic"
+
+# A bare topic name matches title-only slide chunks best ("AVL",
+# "Inclusão em Árvore AVL") - nothing to ground a summary on. Fetch more
+# candidates per topic and skip chunks with less text than this (after
+# the "Document/Section/Pages" header rag/splitter.py prepends).
+REVIEW_CANDIDATES_PER_TOPIC = 20
+REVIEW_MIN_BODY_CHARS = 150
+
+
+def _chunk_body(doc) -> str:
+    return doc.page_content.split("\n\n", 1)[-1]
 
 
 def node(label: str):
@@ -319,6 +336,10 @@ Recent conversation:
             update={"stage": "refer", "turns_in_stage": 0}
         )
 
+    # The study guide is built from the material (retrieve_documents).
+    if is_course_review(learning_state) and config.course_outline:
+        answer_plan = answer_plan.model_copy(update={"needs_retrieval": True})
+
     # The profile's explanation style / topic familiarity, applied to the
     # plan in code on explanation turns (agent/plan_profile.py).
     answer_plan, plan_levers = apply_profile_to_plan(
@@ -357,7 +378,7 @@ Recent conversation:
     return result
 
 @node("DOCUMENT RETRIEVAL")
-def retrieve_documents(state: TutorState, retriever):
+def retrieve_documents(state: TutorState, retriever, config: TutorConfig):
     """
     Retrieves relevant instructional documents based on the current learning
     state and the student's question.
@@ -369,6 +390,39 @@ def retrieve_documents(state: TutorState, retriever):
 
     if question is None:
         raise ValueError("No HumanMessage found during document retrieval.")
+
+    # "Help me review for the exam" names no topic, so one query on it
+    # brings back a few arbitrary chunks. Query each topic of the course
+    # outline instead, in course order, for material from all of it.
+    # Each chunk is tagged with the topic it was retrieved for, so
+    # assess_documents grades it against that topic.
+    if is_course_review(learning_state) and config.course_outline:
+        vectorstore = retriever.vectorstore
+        vectors = vectorstore.embeddings.embed_documents(config.course_outline)
+        docs, seen = [], set()
+
+        for topic, vector in zip(config.course_outline, vectors):
+            candidates = vectorstore.similarity_search_by_vector(
+                vector, k=REVIEW_CANDIDATES_PER_TOPIC
+            )
+            picked = [
+                doc
+                for doc in candidates
+                if len(_chunk_body(doc).strip()) >= REVIEW_MIN_BODY_CHARS
+                and doc.page_content not in seen
+            ][:REVIEW_CHUNKS_PER_TOPIC]
+
+            for doc in picked:
+                seen.add(doc.page_content)
+                docs.append(
+                    doc.model_copy(
+                        update={"metadata": {**doc.metadata, REVIEW_TOPIC_KEY: topic}}
+                    )
+                )
+
+        return {
+            "retrieved_docs": docs,
+        }
 
     # Augment with topic/subtopic, which are genuinely part of what's being
     # asked about. Previously this also injected intent/strategy-derived
@@ -423,6 +477,21 @@ def assess_documents(state: TutorState, config: TutorConfig, model):
         raise ValueError("No HumanMessage found during document assessment.")
 
     learning_state = state["learning_state"]
+    course_review = is_course_review(learning_state)
+
+    # The review question itself ("help me review the main points")
+    # matches no chunk in particular - graded against it, every chunk came
+    # out "partially useful" and nearly all were dropped. Grade each one
+    # against the course topic it was retrieved for instead.
+    def review_note(doc) -> str:
+        topic = doc.metadata.get(REVIEW_TOPIC_KEY)
+        if not topic:
+            return ""
+        return (
+            f"\nThe student is reviewing the whole course for an exam; this "
+            f"chunk was retrieved for the course topic \"{topic}\". Score "
+            f"how useful it is for reviewing THAT topic.\n"
+        )
 
     assessor = model.with_structured_output(ChunkAssessment)
 
@@ -439,7 +508,7 @@ def assess_documents(state: TutorState, config: TutorConfig, model):
                 content=f"""
 Student question:
 {question}
-
+{review_note(doc)}
 Learning state:
 {learning_state.model_dump_json(indent=2)}
 
@@ -465,12 +534,21 @@ Retrieved chunk:
         reverse=True,
     )
 
-    # threshold
+    # threshold - lower for a course review: a "partially useful" chunk
+    # (it introduces the topic) is still the right place to send the
+    # student to study it, which is what that reply's citations are for.
+    threshold = 0.4 if course_review else 0.5
     kept = [
         (doc, assessment)
         for doc, assessment in scored_docs
-        if assessment.relevance_score >= 0.5
+        if assessment.relevance_score >= threshold
     ]
+
+    # A course review walks the topics in course order (the order they
+    # were retrieved in), not by score.
+    if course_review:
+        order = {id(doc): i for i, doc in enumerate(retrieved_docs)}
+        kept.sort(key=lambda pair: order[id(pair[0])])
 
     # fallback: only when the top scores are at least weakly relevant.
     # Below this floor, the chunks are clearly irrelevant and shouldn't be
@@ -532,6 +610,8 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
         teaching_state,
         answer_plan.strategy,
         example_first=leads_with_example(answer_plan, teaching_state, student_profile),
+        course_review=is_course_review(learning_state),
+        course_outline=config.course_outline,
     )
 
     context = ""
@@ -658,7 +738,11 @@ def render_student_profile(profile: StudentProfile) -> str:
 
 
 def resolve_teaching_instructions(
-    teaching_state: TeachingState, strategy: str, example_first: bool = False
+    teaching_state: TeachingState,
+    strategy: str,
+    example_first: bool = False,
+    course_review: bool = False,
+    course_outline: list[str] | None = None,
 ) -> str:
     """
     Picks the instruction block for generate_answer.
@@ -672,7 +756,14 @@ def resolve_teaching_instructions(
       - step_by_step just appends a formatting note.
     `example_first` (the student's profile, see agent/plan_profile.py)
     appends a note to open with the example.
+
+    A course-wide review (agent/teaching.is_course_review) is a study guide
+    over the course outline instead - it is always direct (exam_prep).
     """
+    if course_review and course_outline:
+        outline = "\n".join(f"{i}. {t}" for i, t in enumerate(course_outline, 1))
+        return prompts.COURSE_REVIEW_INSTRUCTIONS.format(outline=outline)
+
     if teaching_state.mode == "direct":
         base = prompts.DIRECT_MODE_INSTRUCTIONS
     elif strategy in prompts.STRATEGY_OVERRIDE_INSTRUCTIONS:

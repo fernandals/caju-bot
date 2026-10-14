@@ -21,6 +21,22 @@ PROFILE_CONFIDENCE_FLOOR = 0.4
 # the planning node picks an exercise_first / hint_only strategy.
 DIRECT_INTENTS = {"exam_prep"}
 
+
+def is_course_review(learning_state: LearningState | None) -> bool:
+    """
+    Exam prep with no topic named ("tenho prova, me ajuda a revisar?" -
+    the review starter button): a review of the whole course, answered as
+    a study guide over the course outline with as many citations as
+    possible (agent/nodes: retrieve_documents, assess_documents,
+    resolve_teaching_instructions). Exam prep on a named topic stays a
+    regular direct-mode explanation.
+    """
+    return (
+        learning_state is not None
+        and learning_state.intent == "exam_prep"
+        and not learning_state.topic
+    )
+
 # The tutor's own decision to stop guiding and explain (the student is
 # "stuck", or the guided-turn cap below is reached) never happens before
 # the student has replied to this many guiding questions - whatever the

@@ -408,6 +408,34 @@ DIRECT_MODE_INSTRUCTIONS = (
     "line offering an example or a practice question." + _CITATION_REMINDER
 )
 
+# A review of the whole course for an exam (agent/teaching.is_course_review):
+# the student needs to know WHAT to study and WHERE in the material, so the
+# reply is a study guide pointing to as many sources as possible.
+COURSE_REVIEW_INSTRUCTIONS = (
+    "COURSE REVIEW - the student is preparing for an exam and wants to "
+    "review the whole course. Reply with a study guide, not a single "
+    "explanation:\n"
+    "- One short opening sentence, then ALL the course topics below, in "
+    "this order, as a list (topic name in bold).\n"
+    "- If no retrieved source covers a topic, give it one short line "
+    "inviting the student to ask you about it, with no citation and no "
+    "content of your own. Never say the topic is not covered or missing "
+    "from the material - it is part of the course.\n"
+    "- For each topic, 1-2 sentences with the key ideas to master, grounded "
+    "in the retrieved material.\n"
+    "- CITE AS MUCH AS POSSIBLE: the goal is to show the student where to "
+    "study each point. Put the CITE_AS marker of every source that "
+    "supports a topic right after it, and use every relevant source at "
+    "least once - more citations are better here than in any other "
+    "reply.\n"
+    "- If the sources include exercise lists, point to them for practice "
+    "with their markers.\n"
+    "- This reply may be long; ignore the usual sentence limit. Do NOT ask "
+    "guiding questions. Close with one short line offering to go deeper "
+    "into any topic.\n\n"
+    "Course topics:\n{outline}"
+)
+
 # When the planner picks one of these strategies (student wants to work
 # through it themselves), it replaces the guided-stage block: the response
 # is a problem or a hint, not an explanation. Not used in "direct" mode.

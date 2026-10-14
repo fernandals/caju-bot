@@ -25,6 +25,11 @@ NEW_THREAD_NAME = "Nova conversa"
 # (the TOPICS button or the same question typed - chainlit_app.on_message).
 TOPICS_THREAD_NAME = "Conteúdos da disciplina"
 
+# Title of a conversation that began with a review of the whole course
+# (agent/teaching.is_course_review) - fixed rather than generated, as a
+# title model only has "tenho prova, me ajuda a revisar" to go on.
+REVIEW_THREAD_NAME = "Revisão geral da disciplina"
+
 
 def truncate_for_edit(messages: list, message_id: str) -> bool:
     """
