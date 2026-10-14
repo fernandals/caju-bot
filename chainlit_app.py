@@ -22,6 +22,7 @@ from rag.knowledge_base import (
     resolve_source_pdf,
 )
 from utils.chat_session import (
+    NEW_THREAD_NAME,
     TUTOR_STATE_KEY,
     needs_title,
     restore_tutor_state,
@@ -461,6 +462,28 @@ async def on_chat_start():
         ),  # type: ignore
     )
 
+    cl.user_session.set("titled", False)
+    cl.user_session.set("course_tagged", False)
+
+    # First conversations only: ask how they like explanations, so the
+    # tutor can adapt before the profiler has observed anything. The usual
+    # greeting waits for the answer (on_style_choice) - showing both at
+    # once buries the question under the greeting.
+    if matricula and should_ask_style(profile):
+        question = cl.Message(
+            content=STYLE_QUESTION,
+            actions=[
+                cl.Action(name=STYLE_ACTION_NAME, payload={"style": value}, label=label, icon=icon)
+                for label, value, icon in STYLE_CHOICES
+            ],
+        )
+        await question.send()
+        cl.user_session.set("style_message", question)
+    else:
+        await _send_welcome()
+
+
+async def _send_welcome():
     user = cl.user_session.get("user")
     nome = (user.metadata or {}).get("name") if user else None
     greeting = f"Olá, {nome}! " if nome else "Olá! "
@@ -473,23 +496,7 @@ async def on_chat_start():
         actions=_actions(STARTERS),
     )
     await welcome.send()
-
     cl.user_session.set("buttons_message", welcome)
-    cl.user_session.set("titled", False)
-    cl.user_session.set("course_tagged", False)
-
-    # First conversations only: ask how they like explanations, so the
-    # tutor can adapt before the profiler has observed anything.
-    if matricula and should_ask_style(profile):
-        question = cl.Message(
-            content=STYLE_QUESTION,
-            actions=[
-                cl.Action(name=STYLE_ACTION_NAME, payload={"style": value}, label=label, icon=icon)
-                for label, value, icon in STYLE_CHOICES
-            ],
-        )
-        await question.send()
-        cl.user_session.set("style_message", question)
 
 
 @cl.on_chat_resume
@@ -764,6 +771,20 @@ async def on_style_choice(action: cl.Action):
     if state is not None and study_session.get("arm") == "on":
         state["student_profile"] = profile
 
+    # Chainlit names a thread after its first interaction - here the
+    # button's action name ("style_choice") would sit in the sidebar until
+    # the first real question is titled. Show a neutral name meanwhile.
+    thread_id = _safe_thread_id()
+    data_layer = _chainlit_data_layer()
+    if thread_id and data_layer is not None and not cl.user_session.get("titled"):
+        try:
+            await data_layer.update_thread(thread_id=thread_id, name=NEW_THREAD_NAME)
+            await cl.context.emitter.emit(
+                "first_interaction", {"interaction": NEW_THREAD_NAME, "thread_id": thread_id}
+            )
+        except Exception:  # noqa: BLE001 - cosmetic
+            pass
+
     question = cl.user_session.get("style_message")
     cl.user_session.set("style_message", None)
     if question is not None:
@@ -773,6 +794,11 @@ async def on_style_choice(action: cl.Action):
             await question.update()
         except Exception:  # noqa: BLE001 - cosmetic
             pass
+
+    # The greeting held back by on_chat_start - unless the student skipped
+    # the buttons and already started chatting.
+    if state is None or len(state["messages"]) <= 1:
+        await _send_welcome()
 
 
 # ---------------- TURN ----------------

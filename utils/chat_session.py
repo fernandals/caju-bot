@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # chainlit_app._persist_turn_metadata).
 TUTOR_STATE_KEY = "tutor_state"
 
+# Placeholder thread name set when a conversation starts with the style
+# question click (chainlit_app.on_style_choice), until the generated title.
+NEW_THREAD_NAME = "Nova conversa"
+
 
 def truncate_for_edit(messages: list, message_id: str) -> bool:
     """
@@ -40,7 +44,11 @@ def needs_title(name: str | None) -> bool:
     reply, or the first-conversation style question). Those
     (and a bare greeting) are worth replacing with a generated title.
     """
-    return not name or name in (ACTION_NAME, STYLE_ACTION_NAME) or is_smalltalk(name)
+    return (
+        not name
+        or name in (ACTION_NAME, STYLE_ACTION_NAME, NEW_THREAD_NAME)
+        or is_smalltalk(name)
+    )
 
 
 def tutor_state_snapshot(final_state) -> dict | None:
