@@ -6,7 +6,10 @@ user_env = []
 session_timeout = 3600
 
 # Duration (in seconds) of the user session expiry
-user_session_timeout = 1296000  # 15 days
+# Login lifetime, counted from login (not from the last activity). Short:
+# students share lab computers, and a login left open would carry the next
+# student's conversations into the previous one's account and profile.
+user_session_timeout = 10800  # 3 hours
 
 # Enable third parties caching (e.g., LangChain cache)
 cache = false
@@ -133,7 +136,7 @@ custom_css = "/public/style.css"
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-custom_js = "/public/login-unmask.js"
+custom_js = "/public/app.js"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"

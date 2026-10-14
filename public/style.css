@@ -13,3 +13,21 @@
   white-space: normal;
   padding: 0.08rem 0.4rem;
 }
+
+/* "Sair" button next to the avatar (public/logout.js). Chainlit's theme
+ * variables, so it follows light/dark mode. */
+#logout-button {
+  height: 2rem;
+  padding: 0 0.75rem;
+  margin-right: 0.25rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+#logout-button:hover {
+  background: hsl(var(--accent));
+}
