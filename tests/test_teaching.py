@@ -1,346 +1,194 @@
 """
-Unit tests for the deterministic teaching-state machine
-(agent/teaching.py::advance_teaching_state). No LLM calls, no API key
-needed - this is pure Python logic and the single biggest lever on what
-a student actually experiences (whether they get guided or just told the
-answer), so it's worth locking down before real students hit it.
-
-Flagged as an obvious test target in PROJECT_LOG.md (2026-09-09 entry).
+The teaching arc (agent/teaching.py): when the tutor guides with a
+question, when it explains, and how the profile and the session bend
+that. Deterministic - this decides what a student experiences most
+directly, whether they get guided or just told.
 """
 
 import pytest
 
-from agent.state import LearningState, StudentProfile, TeachingState
 from agent.nodes import resolve_teaching_instructions
 from agent.prompts import ATTEMPT_REVIEW_NOTE, DIRECT_MODE_INSTRUCTIONS
+from agent.state import LearningState, StudentProfile, TeachingState
 from agent.teaching import (
     GUIDED_TURN_CAP,
+    GUIDED_TURN_CAP_SHAKY,
+    MIN_GUIDED_ATTEMPTS,
     advance_teaching_state,
     continue_exercise,
+    guided_turn_cap,
     is_course_review,
 )
 
+ANCHOR = ("loops", "for-loop")
+CONFIDENT = dict(confidence=0.8)
+SENSITIVE = StudentProfile(frustration_tendency="high", **CONFIDENT)
+POOR_GUIDING = StudentProfile(responds_to_guiding_questions="poorly", **CONFIDENT)
+
+
+def ts(stage="check", turns=1, **kwargs) -> TeachingState:
+    return TeachingState(**{"topic_anchor": ANCHOR, "stage": stage, "turns_in_stage": turns, **kwargs})
+
+
+def ls(**kwargs) -> LearningState:
+    return LearningState(**{"topic": ANCHOR[0], "subtopic": ANCHOR[1], **kwargs})
+
+
+# (previous state, what tracking saw, profile) -> (mode, stage, turns_in_stage)
+TRANSITIONS = {
+    # A new topic or subtopic restarts the arc with a guiding question.
+    "new topic": (ts("deepen", 3), ls(topic="recursion", subtopic=None), None, ("guided", "introduce", 0)),
+    "new subtopic": (ts("check", 2), ls(subtopic="while-loop"), None, ("guided", "introduce", 0)),
+    "first turn ever": (TeachingState(), ls(), None, ("guided", "introduce", 0)),
+    # Escape valves: frustration or exam prep go straight to the explanation.
+    "frustrated": (ts(), ls(frustration_level=0.9), None, ("direct", "deepen", None)),
+    "just below threshold": (ts(), ls(frustration_level=0.59), None, ("guided", None, None)),
+    "sensitive student escapes earlier": (ts(), ls(frustration_level=0.5), SENSITIVE, ("direct", "deepen", None)),
+    "unconfident profile ignored": (
+        ts(), ls(frustration_level=0.5), StudentProfile(frustration_tendency="high", confidence=0.1), ("guided", None, None)
+    ),
+    "exam prep": (ts("introduce", 0), ls(intent="exam_prep"), None, ("direct", "deepen", None)),
+    "exam prep on a new topic": (ts(), ls(subtopic="while-loop", intent="exam_prep"), None, ("direct", "deepen", None)),
+    "frustration carried to a new topic": (ts(), ls(topic="recursion", frustration_level=0.8), None, ("direct", None, None)),
+    "practice stays guided": (ts("introduce", 0), ls(intent="practice"), None, ("guided", None, None)),
+    # After pointing at the material ("refer").
+    "refer, then mastered": (ts("refer", 0), ls(learning_progress="mastered"), None, ("guided", "wrap_up", None)),
+    "refer, then engaged": (ts("refer", 0), ls(learning_progress="improving"), None, (None, "check", None)),
+    "refer, then stable": (ts("refer", 0), ls(learning_progress="stable"), None, (None, "deepen", None)),
+    "refer, then stuck": (ts("refer", 0), ls(learning_progress="stuck"), None, (None, "deepen", None)),
+    # The guided loop.
+    "right on the easy first question: one more": (ts("introduce", 0), ls(learning_progress="mastered"), None, (None, "check", 1)),
+    "right after a nudge: wrap up": (ts(), ls(learning_progress="mastered"), None, (None, "wrap_up", None)),
+    "stuck on the first reply: one more try": (ts("introduce", 0), ls(learning_progress="stuck"), None, (None, "check", 1)),
+    "stuck after a nudge: explain": (ts(), ls(learning_progress="stuck"), None, (None, "deepen", None)),
+    "still engaged: keep asking": (ts(), ls(learning_progress="stable"), None, (None, "check", 2)),
+    "turn cap reached: explain": (ts("check", GUIDED_TURN_CAP - 1), ls(learning_progress="stable"), None, (None, "deepen", None)),
+    "explained: wrap up": (ts("deepen", 0), ls(learning_progress="stable"), None, ("guided", "wrap_up", None)),
+    "wrapped up, still engaged: new cycle": (ts("wrap_up", 0), ls(learning_progress="stable"), None, (None, "introduce", 0)),
+}
+
+
+@pytest.mark.parametrize("previous, learning, profile, expected", TRANSITIONS.values(), ids=TRANSITIONS.keys())
+def test_transitions(previous, learning, profile, expected):
+    result = advance_teaching_state(previous, learning, profile)
+
+    for field, value in zip(("mode", "stage", "turns_in_stage"), expected):
+        if value is not None:
+            assert getattr(result, field) == value
+
+
+def replies_until_explained(profile=None, familiarity="new", progress="improving", **start):
+    """Stages after each student reply, from the introduce turn on."""
+    state = ts("introduce", 0, **start)
+    stages = []
+    for _ in range(8):
+        state = advance_teaching_state(state, ls(learning_progress=progress), profile, familiarity)
+        stages.append(state.stage)
+        if state.stage != "check":
+            break
+    return stages
+
+
+@pytest.mark.parametrize(
+    "profile, familiarity, replies",
+    [
+        (None, "new", GUIDED_TURN_CAP),
+        (StudentProfile(**CONFIDENT), "shaky", GUIDED_TURN_CAP_SHAKY),
+        (POOR_GUIDING, "new", MIN_GUIDED_ATTEMPTS),
+        # Below the confidence floor the profile changes nothing.
+        (StudentProfile(responds_to_guiding_questions="poorly", confidence=0.2), "shaky", GUIDED_TURN_CAP),
+    ],
+)
+def test_profile_sets_how_long_the_tutor_guides(profile, familiarity, replies):
+    stages = replies_until_explained(profile, familiarity)
+    assert len(stages) == replies and stages[-1] == "deepen"
+
+
+def test_guiding_never_ends_before_the_minimum():
+    assert guided_turn_cap(POOR_GUIDING, "shaky") == MIN_GUIDED_ATTEMPTS == 2
+    assert replies_until_explained(POOR_GUIDING, "shaky", progress="stuck") == ["check", "deepen"]
+
+
+def test_solid_topic_accepts_mastery_on_the_first_reply():
+    assert replies_until_explained(StudentProfile(**CONFIDENT), "solid", "mastered") == ["wrap_up"]
+    assert replies_until_explained(StudentProfile(**CONFIDENT), "new", "mastered") == ["check", "wrap_up"]
+
+
+def test_session_counts_survive_topic_changes_and_shorten_a_struggling_session():
+    stuck = advance_teaching_state(ts(), ls(learning_progress="stuck"))
+    assert (stuck.stage, stuck.session_arcs_stuck) == ("deepen", 1)
+    assert advance_teaching_state(stuck, ls(topic="other")).session_arcs_stuck == 1
+
+    mastered = advance_teaching_state(ts(), ls(learning_progress="mastered"))
+    assert mastered.session_arcs_mastered == 1
 
-def learning_state(**kwargs) -> LearningState:
-    defaults = dict(topic="loops", subtopic="for-loop")
-    defaults.update(kwargs)
-    return LearningState(**defaults)
+    # Two stuck arcs, none mastered: the rest of the session guides briefly
+    # - unless in-session adaptation is off, or guiding did work once.
+    def replies(adapt=True, **counts):
+        state, n = ts("introduce", 0, **counts), 0
+        while True:
+            state = advance_teaching_state(state, ls(learning_progress="improving"), None, adapt_in_session=adapt)
+            n += 1
+            if state.stage != "check":
+                return n
 
+    assert replies(session_arcs_stuck=2) == MIN_GUIDED_ATTEMPTS
+    assert replies(session_arcs_stuck=2, adapt=False) == GUIDED_TURN_CAP
+    assert replies(session_arcs_stuck=2, session_arcs_mastered=1) == GUIDED_TURN_CAP
 
-def teaching_state(**kwargs) -> TeachingState:
-    defaults = dict(topic_anchor=("loops", "for-loop"), mode="guided", stage="introduce", turns_in_stage=0)
-    defaults.update(kwargs)
-    return TeachingState(**defaults)
 
+# ---------------- course review ----------------
 
-class TestTopicChange:
-    def test_new_topic_resets_to_introduce(self):
-        previous = teaching_state(stage="deepen", turns_in_stage=3)
-        ls = learning_state(topic="recursion", subtopic=None)
 
-        result = advance_teaching_state(previous, ls)
+@pytest.mark.parametrize(
+    "learning, review",
+    [
+        (ls(intent="exam_prep", topic=None), True),
+        (ls(intent="exam_prep", topic="Árvores AVL"), False),
+        (ls(intent="review", topic=None), False),
+        (None, False),
+    ],
+)
+def test_course_review_is_exam_prep_without_a_topic(learning, review):
+    assert is_course_review(learning) is review
 
-        assert result.topic_anchor == ("recursion", None)
-        assert result.mode == "guided"
-        assert result.stage == "introduce"
-        assert result.turns_in_stage == 0
 
-    def test_first_turn_ever_is_a_topic_change(self):
-        # Default TeachingState() has topic_anchor (None, None), which only
-        # matches a LearningState with no topic/subtopic either.
-        previous = TeachingState()
-        ls = learning_state()
+def test_course_review_instructions():
+    outline = ["Complexidade assintótica", "Árvores AVL"]
+    review = resolve_teaching_instructions(ts(mode="direct"), "direct_answer", course_review=True, course_outline=outline)
 
-        result = advance_teaching_state(previous, ls)
+    assert review.startswith("COURSE REVIEW")
+    assert "1. Complexidade assintótica\n2. Árvores AVL" in review
+    # No outline: the usual direct explanation.
+    assert resolve_teaching_instructions(ts(mode="direct"), "direct_answer", course_review=True) == DIRECT_MODE_INSTRUCTIONS
 
-        assert result.stage == "introduce"
-        assert result.turns_in_stage == 0
 
-    def test_subtopic_change_within_same_topic_also_resets(self):
-        previous = teaching_state(topic_anchor=("loops", "for-loop"), stage="check", turns_in_stage=2)
-        ls = learning_state(topic="loops", subtopic="while-loop")
+# ---------------- exercise attempts ----------------
 
-        result = advance_teaching_state(previous, ls)
 
-        assert result.stage == "introduce"
-
-
-class TestFrustrationEscapeValve:
-    def test_high_frustration_forces_direct_deepen(self):
-        previous = teaching_state(stage="check", turns_in_stage=1)
-        ls = learning_state(frustration_level=0.9)
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.mode == "direct"
-        assert result.stage == "deepen"
-
-    def test_frustration_just_below_default_threshold_does_not_escape(self):
-        previous = teaching_state(stage="check", turns_in_stage=1)
-        ls = learning_state(frustration_level=0.59)
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.mode == "guided"
-
-    def test_sensitive_profile_lowers_escape_threshold(self):
-        previous = teaching_state(stage="check", turns_in_stage=1)
-        ls = learning_state(frustration_level=0.5)  # below default 0.6, above sensitive 0.45
-        profile = StudentProfile(frustration_tendency="high", confidence=0.8)
-
-        result = advance_teaching_state(previous, ls, profile)
-
-        assert result.mode == "direct"
-        assert result.stage == "deepen"
-
-    def test_low_confidence_profile_does_not_lower_threshold(self):
-        previous = teaching_state(stage="check", turns_in_stage=1)
-        ls = learning_state(frustration_level=0.5)
-        profile = StudentProfile(frustration_tendency="high", confidence=0.1)
-
-        result = advance_teaching_state(previous, ls, profile)
-
-        # Confidence below PROFILE_CONFIDENCE_FLOOR (0.4) -> default 0.6 threshold applies.
-        assert result.mode == "guided"
-
-    def test_exam_prep_intent_forces_direct_deepen(self):
-        previous = teaching_state(stage="introduce", turns_in_stage=0)
-        ls = learning_state(intent="exam_prep", frustration_level=0.0)
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.mode == "direct"
-        assert result.stage == "deepen"
-
-    def test_exam_prep_on_new_topic_goes_direct_immediately(self):
-        # Regression: the topic-change reset used to return before the
-        # escape valves, so a cramming student got a guiding question on
-        # the first message of every new topic.
-        previous = teaching_state(topic_anchor=("loops", "for-loop"))
-        ls = learning_state(topic="loops", subtopic="while-loop", intent="exam_prep")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.topic_anchor == ("loops", "while-loop")
-        assert result.mode == "direct"
-        assert result.stage == "deepen"
-
-    def test_frustration_carried_to_new_topic_goes_direct(self):
-        previous = teaching_state(topic_anchor=("loops", "for-loop"))
-        ls = learning_state(topic="recursion", subtopic=None, frustration_level=0.8)
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.mode == "direct"
-
-    def test_practice_intent_does_not_force_direct(self):
-        previous = teaching_state(stage="introduce", turns_in_stage=0)
-        ls = learning_state(intent="practice", frustration_level=0.0)
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.mode == "guided"
-
-
-class TestReferStage:
-    def test_refer_then_mastered_goes_to_wrap_up(self):
-        previous = teaching_state(stage="refer", turns_in_stage=0)
-        ls = learning_state(learning_progress="mastered")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "wrap_up"
-        assert result.mode == "guided"
-
-    def test_refer_then_improving_resumes_check(self):
-        previous = teaching_state(stage="refer", turns_in_stage=0)
-        ls = learning_state(learning_progress="improving")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "check"
-
-    @pytest.mark.parametrize("progress", ["stable", "stuck"])
-    def test_refer_then_no_engagement_concedes_to_deepen(self, progress):
-        previous = teaching_state(stage="refer", turns_in_stage=0)
-        ls = learning_state(learning_progress=progress)
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "deepen"
-
-
-class TestGuidedLoop:
-    def test_mastered_on_first_reply_asks_one_more_question(self):
-        # A right answer to the (deliberately easy) introduce question is
-        # not enough to wrap up the topic - confirm with one more.
-        previous = teaching_state(stage="introduce", turns_in_stage=0)
-        ls = learning_state(learning_progress="mastered")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "check"
-        assert result.turns_in_stage == 1
-
-    def test_mastered_after_a_nudge_wraps_up(self):
-        previous = teaching_state(stage="check", turns_in_stage=1)
-        ls = learning_state(learning_progress="mastered")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "wrap_up"
-
-    def test_stuck_on_first_guided_reply_is_not_conceded_yet(self):
-        # Regression guard for the "tracker over-labels stuck early" fix:
-        # the very first reply within the arc should get one more guiding
-        # question, not the full explanation.
-        previous = teaching_state(stage="introduce", turns_in_stage=0)
-        ls = learning_state(learning_progress="stuck")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "check"
-        assert result.turns_in_stage == 1
-
-    def test_stuck_after_a_nudge_concedes_to_deepen(self):
-        previous = teaching_state(stage="check", turns_in_stage=1)
-        ls = learning_state(learning_progress="stuck")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "deepen"
-
-    def test_still_engaged_keeps_looping_in_check(self):
-        previous = teaching_state(stage="check", turns_in_stage=1)
-        ls = learning_state(learning_progress="stable")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "check"
-        assert result.turns_in_stage == 2
-
-    def test_guided_turn_cap_forces_concession(self):
-        previous = teaching_state(stage="check", turns_in_stage=GUIDED_TURN_CAP - 1)
-        ls = learning_state(learning_progress="stable")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "deepen"
-
-    def test_profile_poor_guiding_response_still_tries_twice(self):
-        # The profile shortens the arc to the minimum, but the tutor still
-        # tries MIN_GUIDED_ATTEMPTS guiding questions before explaining.
-        profile = StudentProfile(responds_to_guiding_questions="poorly", confidence=0.9)
-        ls = learning_state(learning_progress="improving")
-
-        first = advance_teaching_state(teaching_state(stage="introduce", turns_in_stage=0), ls, profile)
-        second = advance_teaching_state(first, ls, profile)
-
-        assert first.stage == "check"
-        assert second.stage == "deepen"
-
-    def test_profile_poor_guiding_response_ignored_below_confidence_floor(self):
-        previous = teaching_state(stage="introduce", turns_in_stage=0)
-        ls = learning_state(learning_progress="improving")
-        profile = StudentProfile(responds_to_guiding_questions="poorly", confidence=0.2)
-
-        result = advance_teaching_state(previous, ls, profile)
-
-        assert result.stage == "check"
-
-
-class TestDeepenAndWrapUp:
-    def test_deepen_always_advances_to_wrap_up(self):
-        previous = teaching_state(stage="deepen", turns_in_stage=0)
-        ls = learning_state(learning_progress="stable")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "wrap_up"
-        assert result.mode == "guided"
-
-    def test_wrap_up_on_continued_engagement_starts_fresh_cycle(self):
-        previous = teaching_state(stage="wrap_up", turns_in_stage=0)
-        ls = learning_state(learning_progress="stable")
-
-        result = advance_teaching_state(previous, ls)
-
-        assert result.stage == "introduce"
-        assert result.turns_in_stage == 0
-
-
-class TestCourseReview:
-    def test_exam_prep_without_topic_is_a_course_review(self):
-        assert is_course_review(learning_state(intent="exam_prep", topic=None))
-
-    def test_exam_prep_on_a_topic_is_not(self):
-        assert not is_course_review(learning_state(intent="exam_prep", topic="Árvores AVL"))
-
-    def test_other_intents_are_not(self):
-        assert not is_course_review(learning_state(intent="review", topic=None))
-        assert not is_course_review(None)
-
-    def test_review_instructions_list_the_outline(self):
-        result = resolve_teaching_instructions(
-            teaching_state(mode="direct"),
-            "direct_answer",
-            course_review=True,
-            course_outline=["Complexidade assintótica", "Árvores AVL"],
-        )
-
-        assert result.startswith("COURSE REVIEW")
-        assert "1. Complexidade assintótica\n2. Árvores AVL" in result
-
-    def test_review_without_outline_falls_back_to_direct_mode(self):
-        result = resolve_teaching_instructions(
-            teaching_state(mode="direct"), "direct_answer", course_review=True
-        )
-
-        assert result == DIRECT_MODE_INSTRUCTIONS
-
-
-class TestContinueExercise:
-    def test_no_exercise_pending_changes_nothing(self):
-        proposed = teaching_state(stage="introduce")
-        assert continue_exercise(teaching_state(), proposed) == proposed
-
-    def test_topic_named_by_the_attempt_stays_in_the_arc(self):
+@pytest.mark.parametrize(
+    "previous_anchor, proposed, stage",
+    [
         # "me passa um exercício" names no topic; the attempt does.
-        previous = teaching_state(topic_anchor=(None, None), exercise_pending=True)
-        proposed = teaching_state(topic_anchor=("árvores", "rotações"), stage="introduce")
+        ((None, None), ts("introduce", 0, topic_anchor=("árvores", "rotações")), "check"),
+        (("árvores", None), ts("introduce", 0, topic_anchor=("árvores", "AVL")), "check"),
+        # A different topic is still a topic change (but may be the attempt).
+        (("árvores", None), ts("introduce", 0, topic_anchor=("heap", None)), "introduce"),
+        (ANCHOR, ts("deepen", 0, mode="direct"), "deepen"),
+    ],
+)
+def test_reply_after_an_exercise_reviews_the_attempt(previous_anchor, proposed, stage):
+    result = continue_exercise(ts(topic_anchor=previous_anchor, exercise_pending=True), proposed)
 
-        result = continue_exercise(previous, proposed)
+    assert result.stage == stage
+    assert result.mode == proposed.mode
+    assert result.reviewing_attempt
 
-        assert result.stage == "check"
-        assert result.reviewing_attempt
 
-    def test_refined_subtopic_stays_in_the_arc(self):
-        previous = teaching_state(topic_anchor=("árvores", None), exercise_pending=True)
-        proposed = teaching_state(topic_anchor=("árvores", "AVL"), stage="introduce")
+def test_no_exercise_pending_changes_nothing():
+    proposed = ts("introduce", 0)
+    assert continue_exercise(ts(), proposed) == proposed
 
-        assert continue_exercise(previous, proposed).stage == "check"
 
-    def test_a_different_topic_is_still_a_topic_change(self):
-        previous = teaching_state(topic_anchor=("árvores", None), exercise_pending=True)
-        proposed = teaching_state(topic_anchor=("heap", None), stage="introduce")
-
-        result = continue_exercise(previous, proposed)
-
-        assert result.stage == "introduce"
-        assert result.reviewing_attempt  # it may still be the attempt
-
-    def test_direct_mode_is_kept(self):
-        previous = teaching_state(exercise_pending=True)
-        proposed = teaching_state(mode="direct", stage="deepen")
-
-        result = continue_exercise(previous, proposed)
-
-        assert (result.mode, result.stage) == ("direct", "deepen")
-        assert result.reviewing_attempt
-
-    def test_attempt_review_note_comes_first(self):
-        result = resolve_teaching_instructions(
-            teaching_state(stage="check"), "guided_teaching", reviewing_attempt=True
-        )
-
-        assert result.startswith(ATTEMPT_REVIEW_NOTE)
+def test_attempt_review_note_comes_first():
+    assert resolve_teaching_instructions(ts(), "guided_teaching", reviewing_attempt=True).startswith(ATTEMPT_REVIEW_NOTE)

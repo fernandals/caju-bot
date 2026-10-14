@@ -1,4 +1,3 @@
-from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -117,15 +116,3 @@ class KnowledgeBase(BaseModel):
     name: str
     retriever: Any
     stats: dict[str, Any] | None = None
-
-class KnowledgeBaseMetadata(BaseModel):
-    id: str
-    name: str
-    created_at: datetime
-    embedding_model: str
-    parser_version: str
-    chunk_size: int
-    chunk_overlap: int
-    documents: int
-    sections: int
-    chunks: int

@@ -125,8 +125,8 @@ confirm_new_chat = false
 # description = ""
 
 # Chain of Thought (CoT) display mode. Can be "hidden", "tool_call" or "full".
-# Hidden: the tutor's "Pensando..." step showed as "Utilizando Pensando..."
-# - Chainlit's own pulsing dot already shows the reply is on its way.
+# Hidden: intermediate steps would show as "Utilizando <step>..."; the
+# waiting dots (public/style.css) already show the reply is on its way.
 cot = "hidden"
 
 # Specify a CSS file that can be used to customize the user interface.

@@ -916,8 +916,7 @@ async def on_message(message: cl.Message):
         state["messages"].append(HumanMessage(content=message.content, id=message.id))
 
         try:
-            async with cl.Step(name="Pensando...", type="run"):
-                final_state = await asyncio.to_thread(_run_graph_sync, graph, state)
+            final_state = await asyncio.to_thread(_run_graph_sync, graph, state)
         except Exception:
             logger.exception("Graph execution failed for a turn")
             # Drop the unanswered question so the student's retry starts clean.
