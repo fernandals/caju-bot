@@ -82,3 +82,30 @@ def test_empty_citations_map_strips_all_markers():
 
     assert "DOC_1" not in result
     assert "DOC_2" not in result
+
+
+def test_code_block_indentation_is_kept():
+    text = (
+        "Pseudocódigo [[CITE:DOC_1]]:\n\n"
+        "```\n"
+        "função insere(nó, valor):\n"
+        "    se nó é nulo:\n"
+        "        retorna novo nó\n"
+        "```\n"
+    )
+
+    result = substitute_citation_markers(text, CITATIONS)
+
+    assert "    se nó é nulo:\n        retorna novo nó" in result
+
+
+def test_inline_code_spacing_is_kept():
+    text = "Use `a  =  b ;` aqui."
+
+    assert substitute_citation_markers(text, CITATIONS) == text
+
+
+def test_nested_list_indentation_is_kept():
+    text = "- item\n    - subitem"
+
+    assert substitute_citation_markers(text, CITATIONS) == text

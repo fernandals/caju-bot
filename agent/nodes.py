@@ -790,6 +790,11 @@ CITATION_MARKER_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+# Fenced blocks (``` ... ```, unclosed at the end included) and inline
+# `code` spans - left untouched by substitute_citation_markers' tidying.
+CODE_SPAN_REGEX = re.compile(r"(```.*?(?:```|$)|`[^`\n]+`)", re.DOTALL)
+
+
 def substitute_citation_markers(
     text: str,
     citations_by_doc_id: dict[str, str],
@@ -812,7 +817,15 @@ def substitute_citation_markers(
 
     # Tidy the gap left where a marker resolved to nothing (or sat
     # mid-sentence): "resposta ." -> "resposta.", collapse double spaces.
-    text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
+    # Prose only - inside code, spacing is content (indentation, `x .y`) -
+    # and never a line's leading indentation (nested Markdown lists).
+    def tidy(prose: str) -> str:
+        prose = re.sub(r"[ \t]+([.,;:!?])", r"\1", prose)
+        return re.sub(r"(?<=\S)[ \t]{2,}", " ", prose)
 
-    return text
+    parts = CODE_SPAN_REGEX.split(text)
+
+    # split() with one capture group alternates prose, code, prose, ...
+    return "".join(
+        part if i % 2 else tidy(part) for i, part in enumerate(parts)
+    )
