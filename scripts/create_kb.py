@@ -11,6 +11,10 @@ Usage (run from the repo root, so `rag`/`utils` resolve as packages):
 
 Pass --roster <sigaa_grade_sheet.xls> to also generate data/roster.txt
 from the sheet's "Matrícula" column in the same run.
+
+Pass --out-dir <folder> to build the KB somewhere the app won't load it
+(it loads data/knowledge_bases/ only) - e.g. to score an ingestion change
+against the current KB with evals/retrieval_eval.py.
 """
 
 import argparse
@@ -19,7 +23,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from rag.knowledge_base import create_and_save_knowledge_base, list_knowledge_bases
+from rag.knowledge_base import (
+    KNOWLEDGE_BASES_DIR,
+    create_and_save_knowledge_base,
+    list_knowledge_bases,
+)
 from utils.helpers import parse_sigaa_roster, write_roster
 
 ROSTER_PATH = Path("data/roster.txt")
@@ -44,6 +52,13 @@ def parse_args() -> argparse.Namespace:
             "SIGAA grade sheet (.xls) to build data/roster.txt from - the "
             "'Matrícula' column becomes the enrollment allowlist."
         ),
+    )
+
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=KNOWLEDGE_BASES_DIR,
+        help="Folder to build the KB in (default: data/knowledge_bases).",
     )
 
     return parser.parse_args()
@@ -72,13 +87,17 @@ def main() -> None:
             sys.exit(f"Error: no enrollment IDs found in '{args.roster}'.")
 
     try:
-        create_and_save_knowledge_base(args.pdf_folder, args.discipline)
+        kb = create_and_save_knowledge_base(args.pdf_folder, args.discipline, args.out_dir)
     except ValueError as exc:
         sys.exit(f"Error building knowledge base: {exc}")
 
     if student_ids is not None:
         write_roster(student_ids, ROSTER_PATH, header=args.discipline)
         print(f"Wrote {len(student_ids)} enrollment ID(s) to {ROSTER_PATH}")
+
+    if args.out_dir != KNOWLEDGE_BASES_DIR:
+        print(f"\nBuilt in {args.out_dir} ({kb.stats['chunks']} chunks)")
+        return
 
     print("\nKnowledge bases now on disk:")
     for kb in list_knowledge_bases():

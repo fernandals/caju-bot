@@ -8,12 +8,17 @@ from rag.models import (
     SemanticBlock,
     SemanticBlockType,
 )
+from rag.splitter import token_length
 from utils.helpers import (
     detect_chapter_from_filename,
     detect_chapter_header,
     extract_slide_structure,
     offset_to_page,
 )
+
+
+# Recorded in each KB's metadata.json. 1.1: slides grouped (group_slides).
+PARSER_VERSION = "1.1"
 
 
 def parse_documents(
@@ -337,7 +342,122 @@ def parse_slides(
     return ParsedDocument(
         metadata=doc.metadata,
         title=extract_document_title(doc),
-        sections=sections,
+        sections=group_slides(drop_slide_builds(sections)),
+    )
+
+
+# One section per slide made a third of all chunks near-empty - a title
+# slide ("AVL"), a heading split from its content, a slide re-shown with
+# one more bullet - and those are what a topic-name query matches best,
+# crowding out the slides with the substance (the course review found no
+# usable chunk for whole topics). The two steps below work on slide
+# structure alone, so they apply to any course's decks.
+
+# A slide whose lines reappear this much on the next one is an animation
+# step ("build") of it: the next slide is the same content, more complete.
+SLIDE_BUILD_OVERLAP = 0.8
+
+# Consecutive slides are packed into one section up to this many tokens -
+# two or three slides of a typical deck. Scored with evals/retrieval_eval.py
+# on a slide course (EDB2): 200, 350 and 500 retrieved about equally well
+# (first chunk answering 80-85%, from 68% one-slide-per-chunk); 200 keeps
+# citations tightest (2.2 pages per chunk vs 3.6 and 4.9). A slide alone
+# over it stays alone (the splitter splits it).
+SLIDE_GROUP_TOKENS = 200
+
+# Below this, a slide is a divider (a title or a few words): it starts a
+# new group, so it lands with the content it introduces.
+SLIDE_DIVIDER_TOKENS = 12
+
+
+def _slide_lines(section: Section) -> set[str]:
+    return {
+        line.strip()
+        for line in f"{section.title}\n{section.content}".splitlines()
+        if line.strip()
+    }
+
+
+def drop_slide_builds(sections: list[Section]) -> list[Section]:
+    """Drop slides that are an animation step of the slide after them."""
+    kept = []
+
+    for i, section in enumerate(sections):
+        lines = _slide_lines(section)
+
+        if i + 1 < len(sections) and lines:
+            following = _slide_lines(sections[i + 1])
+            if len(lines & following) / len(lines) >= SLIDE_BUILD_OVERLAP:
+                continue
+
+        kept.append(section)
+
+    return kept
+
+
+def _slide_text(section: Section) -> str:
+    return "\n".join(part for part in (section.title, section.content) if part)
+
+
+def group_slides(sections: list[Section]) -> list[Section]:
+    """Pack consecutive slides into sections of up to SLIDE_GROUP_TOKENS."""
+    groups: list[list[Section]] = []
+    size = 0
+
+    for section in sections:
+        tokens = token_length(_slide_text(section))
+        divider = token_length(section.content) < SLIDE_DIVIDER_TOKENS
+
+        if (
+            not groups
+            or divider
+            or size + tokens > SLIDE_GROUP_TOKENS
+            or section.chapter_number != groups[-1][0].chapter_number
+        ):
+            groups.append([section])
+            size = tokens
+        else:
+            groups[-1].append(section)
+            size += tokens
+
+    return [_merge_slides(group) for group in groups]
+
+
+def _merge_slides(group: list[Section]) -> Section:
+    if len(group) == 1:
+        return group[0]
+
+    first, last = group[0], group[-1]
+    blocks: list[SemanticBlock] = []
+
+    # Each slide keeps its own title, as the first line of its part: the
+    # section title can only carry the first one.
+    for section in group:
+        if section.title:
+            blocks.append(
+                SemanticBlock(
+                    type=SemanticBlockType.PARAGRAPH,
+                    content=section.title,
+                    page_start=section.page_start,
+                    page_end=section.page_start,
+                    start_offset=section.start_offset,
+                    end_offset=section.start_offset + len(section.title),
+                )
+            )
+        blocks.extend(section.blocks)
+
+    return Section(
+        id=f"{first.page_start}-{last.page_end}",
+        title=next((s.title for s in group if s.title), ""),
+        level=1,
+        page_start=first.page_start,
+        page_end=last.page_end,
+        start_offset=first.start_offset,
+        end_offset=last.end_offset,
+        content="\n\n".join(_slide_text(s) for s in group),
+        blocks=blocks,
+        chapter_number=first.chapter_number,
+        chapter_title=first.chapter_title,
     )
 
 # ==== SEMANTIC BLOCKS ====

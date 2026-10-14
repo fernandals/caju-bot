@@ -9,7 +9,7 @@ from langchain_openai import OpenAIEmbeddings
 
 from rag.loader import load_documents
 from rag.models import KnowledgeBase
-from rag.parser import parse_documents
+from rag.parser import PARSER_VERSION, parse_documents
 from rag.splitter import (
     split_documents,
     to_langchain_documents,
@@ -22,6 +22,37 @@ from utils.helpers import generate_kb_id
 # return near-empty text for it rather than erroring, so this is the only
 # signal we have without adding OCR.
 LOW_TEXT_CHARS_PER_PAGE = 20
+
+KNOWLEDGE_BASES_DIR = Path("data/knowledge_bases")
+
+
+def _as_retriever(vectorstore: Chroma):
+    """The student app's retriever - shared with evals/retrieval_eval.py."""
+    return vectorstore.as_retriever(
+        search_type="mmr",
+        search_kwargs={
+            "k": 5,
+            "fetch_k": 20,
+            "lambda_mult": 0.7,
+        },
+    )
+
+
+def open_retriever(kb_dir: Path):
+    """Retriever over the KB persisted in `kb_dir` (chroma/ + metadata.json)."""
+    with open(kb_dir / "metadata.json", encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    embeddings = OpenAIEmbeddings(
+        model=metadata.get(
+            "embedding_model",
+            os.getenv("EMBED_MODEL", "text-embedding-3-large"),
+        )
+    )
+
+    return _as_retriever(
+        Chroma(persist_directory=str(kb_dir / "chroma"), embedding_function=embeddings)
+    )
 
 # ==========================================================
 # Create
@@ -38,11 +69,16 @@ def detect_low_text_files(raw_documents) -> list[str]:
 def create_and_save_knowledge_base(
     folder_path: Path,
     discipline_name: str,
+    base_dir: Path = KNOWLEDGE_BASES_DIR,
 ) -> KnowledgeBase:
+    """
+    `base_dir` other than the default builds a KB the app won't load -
+    e.g. to compare ingestion changes with evals/retrieval_eval.py.
+    """
 
     kb_id = generate_kb_id()
 
-    base_path = Path("data/knowledge_bases") / kb_id
+    base_path = Path(base_dir) / kb_id
     persist_dir = base_path / "chroma"
 
     base_path.mkdir(
@@ -116,7 +152,7 @@ def create_and_save_knowledge_base(
             for doc in parsed_documents
         ),
         "chunks": len(lc_documents),
-        "parser_version": "1.0",
+        "parser_version": PARSER_VERSION,
         "chunk_size": 1000,
         "chunk_overlap": 100,
         "low_text_files": low_text_files,
@@ -150,14 +186,7 @@ def create_and_save_knowledge_base(
 
     return KnowledgeBase(
         name=discipline_name,
-        retriever=vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={
-                "k": 5,
-                "fetch_k": 20,
-                "lambda_mult": 0.7,
-            },
-        ),
+        retriever=_as_retriever(vectorstore),
         stats={
             "documents": metadata["documents"],
             "sections": metadata["sections"],
@@ -200,31 +229,7 @@ def load_knowledge_base(
         if metadata["name"] != discipline_name:
             continue
 
-        persist_dir = kb_dir / "chroma"
-
-        embeddings = OpenAIEmbeddings(
-            model=metadata.get(
-                "embedding_model",
-                os.getenv(
-                    "EMBED_MODEL",
-                    "text-embedding-3-large",
-                ),
-            )
-        )
-
-        vectorstore = Chroma(
-            persist_directory=str(persist_dir),
-            embedding_function=embeddings,
-        )
-
-        return vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={
-                "k": 5,
-                "fetch_k": 20,
-                "lambda_mult": 0.7,
-            },
-        )
+        return open_retriever(kb_dir)
 
     raise ValueError(
         f"No knowledge base found for discipline {discipline_name!r}"

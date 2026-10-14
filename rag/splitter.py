@@ -36,7 +36,7 @@ _splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
 )
 
 
-def _token_length(text: str) -> int:
+def token_length(text: str) -> int:
     return len(_encoding.encode(text))
 
 
@@ -110,7 +110,7 @@ def split_section(
 
     for block in section.blocks:
 
-        block_size = _token_length(block.content)
+        block_size = token_length(block.content)
 
         # Very large paragraph
         if block_size > CHUNK_SIZE:
