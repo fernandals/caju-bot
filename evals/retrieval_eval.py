@@ -16,20 +16,27 @@ Two steps:
 
 The questions come from pages, not from chunks, so the same set scores KBs
 chunked in different ways. Metrics, over the app's own retriever
-(rag/knowledge_base.open_retriever, top 5):
+(rag/knowledge_base.open_retriever; --search / --k try another) and its
+k chunks per search:
 
-- supported@1 / supported@5: a judge model says the first / any of the
+- supported@1 / supported@k: a judge model says the first / any of the
   retrieved chunks holds what answers the question. Independent of chunk
-  boundaries - the main metric.
-- useful/5: how many of the 5 retrieved chunks the judge counts as
-  supporting - retrieval slots not wasted on title-only or off-topic
-  chunks. Broad questions are where this matters.
-- page-hit@5 / MRR: a retrieved chunk spans the question's source page
+  boundaries.
+- useful / precision: how many of the k chunks the judge counts as
+  supporting, and that as a share of k. Closest to what the app uses: every
+  retrieved chunk is graded and all relevant ones reach the answer, so
+  more useful chunks means more grounding, and higher precision means less
+  noise for the grader and generator. Broad questions are where this
+  matters.
+- page-hit@k / MRR: a retrieved chunk spans the question's source page
   (for a broad question: any chunk from its file).
   Cheap and deterministic, but favours chunks spanning more pages, and
   misses when the page's content sits on another page (a repeated slide).
 - chunk stats: retrieved chunk size and pages, and the share of near-empty
   chunks (body under 30 tokens) among them.
+
+The judge varies about +/-3 points on supported@1 between runs of the
+same KB: compare per question (--save) before reading much into less.
 
 Costs a few cents per run (gpt-4.1-mini; override with EVAL_MODEL).
 """
@@ -203,7 +210,13 @@ def _page_hit(doc, q) -> bool:
     return meta.get("page_start", 0) <= q["page"] <= meta.get("page_end", 0)
 
 
-def run(questions_path: Path, kb_dirs: list[Path], save: Path | None = None) -> None:
+def run(
+    questions_path: Path,
+    kb_dirs: list[Path],
+    save: Path | None = None,
+    search: str | None = None,
+    k: int | None = None,
+) -> None:
     questions = json.loads(questions_path.read_text(encoding="utf-8"))
     judge = _model().with_structured_output(Support)
 
@@ -211,7 +224,7 @@ def run(questions_path: Path, kb_dirs: list[Path], save: Path | None = None) -> 
     saved = {}
 
     for kb_dir in kb_dirs:
-        retriever = open_retriever(kb_dir)
+        retriever = open_retriever(kb_dir, search, k)
         retrieved = retriever.batch([q["question"] for q in questions], config={"max_concurrency": 8})
 
         verdicts = judge.batch(
@@ -241,6 +254,7 @@ def run(questions_path: Path, kb_dirs: list[Path], save: Path | None = None) -> 
                     "supporting": sorted(supporting),
                     "group": q.get("kind", "specific"),
                     "useful": len(supporting & set(range(1, len(docs) + 1))),
+                    "k": len(docs),
                     "supported@1": 1 in supporting,
                     "supported@5": bool(supporting),
                     "page-hit@5": first_hit is not None,
@@ -260,12 +274,15 @@ def run(questions_path: Path, kb_dirs: list[Path], save: Path | None = None) -> 
         with open(kb_dir / "metadata.json", encoding="utf-8") as f:
             meta = json.load(f)
 
-        print(f"== {kb_dir}  ({meta.get('chunks')} chunks, parser {meta.get('parser_version')})")
+        print(
+            f"== {kb_dir}  ({meta.get('chunks')} chunks, parser {meta.get('parser_version')},"
+            f" search {search or 'app default'}{f' k={k}' if k else ''})"
+        )
 
         groups = [("all", rows)] + [
             (g, [r for r in rows if r["group"] == g]) for g in ("specific", "broad")
         ]
-        print(f"   {'':8} {'n':>4} {'supp@1':>7} {'supp@5':>7} {'useful/5':>9} {'page@5':>7} {'MRR':>6}")
+        print(f"   {'':8} {'n':>4} {'supp@1':>7} {'supp@k':>7} {'useful':>7} {'precision':>9} {'page@k':>7} {'MRR':>6}")
         for name, group in groups:
             if not group:
                 continue
@@ -274,7 +291,8 @@ def run(questions_path: Path, kb_dirs: list[Path], save: Path | None = None) -> 
                 f"   {name:8} {n:4d}"
                 f" {sum(r['supported@1'] for r in group) / n:7.0%}"
                 f" {sum(r['supported@5'] for r in group) / n:7.0%}"
-                f" {sum(r['useful'] for r in group) / n:9.1f}"
+                f" {sum(r['useful'] for r in group) / n:7.1f}"
+                f" {sum(r['useful'] for r in group) / max(sum(r['k'] for r in group), 1):9.0%}"
                 f" {sum(r['page-hit@5'] for r in group) / n:7.0%}"
                 f" {sum(r['rr'] for r in group) / n:6.2f}"
             )
@@ -303,6 +321,8 @@ def main() -> None:
     run_cmd.add_argument("questions", type=Path)
     run_cmd.add_argument("kb_dirs", type=Path, nargs="+")
     run_cmd.add_argument("--save", type=Path, help="write per-question results (JSON) here")
+    run_cmd.add_argument("--search", choices=["mmr", "similarity", "hybrid"], help="instead of the app's")
+    run_cmd.add_argument("--k", type=int, help="chunks per search, instead of the app's")
 
     args = parser.parse_args()
 
@@ -314,7 +334,7 @@ def main() -> None:
         for kb_dir in args.kb_dirs:
             if not (kb_dir / "metadata.json").is_file():
                 sys.exit(f"Error: '{kb_dir}' is not a knowledge base folder.")
-        run(args.questions, args.kb_dirs, args.save)
+        run(args.questions, args.kb_dirs, args.save, args.search, args.k)
 
 
 if __name__ == "__main__":

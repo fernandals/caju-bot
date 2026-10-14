@@ -10,6 +10,7 @@ from langchain_openai import OpenAIEmbeddings
 from rag.loader import load_documents
 from rag.models import KnowledgeBase
 from rag.parser import PARSER_VERSION, parse_documents
+from rag.retrieval import build_retriever
 from rag.splitter import (
     split_documents,
     to_langchain_documents,
@@ -26,20 +27,27 @@ LOW_TEXT_CHARS_PER_PAGE = 20
 KNOWLEDGE_BASES_DIR = Path("data/knowledge_bases")
 
 
-def _as_retriever(vectorstore: Chroma):
-    """The student app's retriever - shared with evals/retrieval_eval.py."""
-    return vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={
-            "k": 5,
-            "fetch_k": 20,
-            "lambda_mult": 0.7,
-        },
-    )
+# The student app's search (rag/retrieval.py) - shared with
+# evals/retrieval_eval.py, which can try others. Scored on EDB2 (parser
+# 1.2): plain similarity found slightly more useful chunks than MMR at any
+# k (MMR's diversity mattered when slides repeated each other; parser 1.1
+# drops those), and hybrid BM25 helped nowhere (Software Architecture
+# 94% -> 82% first-chunk). k=8 over 5: after the app's grader
+# (agent/nodes.assess_documents) 2.0 useful chunks per question reach the
+# answer instead of 1.6, at about the same precision (66% vs 70%).
+SEARCH = "similarity"
+SEARCH_K = 8
 
 
-def open_retriever(kb_dir: Path):
-    """Retriever over the KB persisted in `kb_dir` (chroma/ + metadata.json)."""
+def _as_retriever(vectorstore: Chroma, search: str | None = None, k: int | None = None):
+    return build_retriever(vectorstore, search or SEARCH, k or SEARCH_K)
+
+
+def open_retriever(kb_dir: Path, search: str | None = None, k: int | None = None):
+    """
+    Retriever over the KB persisted in `kb_dir` (chroma/ + metadata.json):
+    the app's search unless `search` / `k` say otherwise.
+    """
     with open(kb_dir / "metadata.json", encoding="utf-8") as f:
         metadata = json.load(f)
 
@@ -51,7 +59,9 @@ def open_retriever(kb_dir: Path):
     )
 
     return _as_retriever(
-        Chroma(persist_directory=str(kb_dir / "chroma"), embedding_function=embeddings)
+        Chroma(persist_directory=str(kb_dir / "chroma"), embedding_function=embeddings),
+        search,
+        k,
     )
 
 # ==========================================================
