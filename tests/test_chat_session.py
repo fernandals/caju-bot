@@ -125,7 +125,10 @@ class TestTruncateForEdit:
 
 
 class TestNeedsTitle:
-    @pytest.mark.parametrize("name", [None, "", "olá!", "oi", ACTION_NAME, STYLE_ACTION_NAME, "Nova conversa"])
+    @pytest.mark.parametrize(
+        "name",
+        [None, "", "olá!", "oi", ACTION_NAME, STYLE_ACTION_NAME, "Nova conversa", "Conteúdos da disciplina"],
+    )
     def test_useless_default_names(self, name):
         assert needs_title(name)
 

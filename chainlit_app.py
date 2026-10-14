@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.chat_pipeline import load_pipeline
+from agent.graph import is_topics_request
 from agent.nodes import latest_student_question
 from agent.profiler import profile_student, worth_profiling
 from agent.state import StudentProfile, TutorState
@@ -23,6 +24,7 @@ from rag.knowledge_base import (
 )
 from utils.chat_session import (
     NEW_THREAD_NAME,
+    TOPICS_THREAD_NAME,
     TUTOR_STATE_KEY,
     needs_title,
     restore_tutor_state,
@@ -673,14 +675,27 @@ async def on_quick_reply(action: cl.Action):
 
 
 # ---------------- THREAD TITLE ----------------
-async def _set_thread_title(final_state):
-    """Background task: summarize the first real question into the title."""
+async def _rename_thread(name: str):
+    """Rename the current thread, live in the sidebar. Cosmetic - never raises."""
     thread_id = _safe_thread_id()
     data_layer = _chainlit_data_layer()
 
     if not thread_id or data_layer is None:
         return
 
+    try:
+        await data_layer.update_thread(thread_id=thread_id, name=name)
+        # The sidebar re-fetches the thread list whenever this value
+        # changes - re-emitting it with the new name refreshes it live.
+        await cl.context.emitter.emit(
+            "first_interaction", {"interaction": name, "thread_id": thread_id}
+        )
+    except Exception:  # noqa: BLE001 - a title is cosmetic
+        logger.warning("Could not update thread title", exc_info=True)
+
+
+async def _set_thread_title(final_state):
+    """Background task: summarize the first real question into the title."""
     question = latest_student_question(final_state["messages"])
     learning_state = final_state.get("learning_state")
     topic = " / ".join(
@@ -689,18 +704,8 @@ async def _set_thread_title(final_state):
 
     title = await asyncio.to_thread(generate_title, question or "", topic)
 
-    if not title:
-        return
-
-    try:
-        await data_layer.update_thread(thread_id=thread_id, name=title)
-        # The sidebar re-fetches the thread list whenever this value
-        # changes - re-emitting it with the new title refreshes it live.
-        await cl.context.emitter.emit(
-            "first_interaction", {"interaction": title, "thread_id": thread_id}
-        )
-    except Exception:  # noqa: BLE001 - a title is cosmetic
-        logger.warning("Could not update thread title", exc_info=True)
+    if title:
+        await _rename_thread(title)
 
 
 # ---------------- THREAD METADATA ----------------
@@ -774,16 +779,8 @@ async def on_style_choice(action: cl.Action):
     # Chainlit names a thread after its first interaction - here the
     # button's action name ("style_choice") would sit in the sidebar until
     # the first real question is titled. Show a neutral name meanwhile.
-    thread_id = _safe_thread_id()
-    data_layer = _chainlit_data_layer()
-    if thread_id and data_layer is not None and not cl.user_session.get("titled"):
-        try:
-            await data_layer.update_thread(thread_id=thread_id, name=NEW_THREAD_NAME)
-            await cl.context.emitter.emit(
-                "first_interaction", {"interaction": NEW_THREAD_NAME, "thread_id": thread_id}
-            )
-        except Exception:  # noqa: BLE001 - cosmetic
-            pass
+    if not cl.user_session.get("titled"):
+        await _rename_thread(NEW_THREAD_NAME)
 
     question = cl.user_session.get("style_message")
     cl.user_session.set("style_message", None)
@@ -874,5 +871,10 @@ async def on_message(message: cl.Message):
         if not greeted and not cl.user_session.get("titled"):
             cl.user_session.set("titled", True)
             asyncio.create_task(_set_thread_title(final_state))
+        elif greeted and not cl.user_session.get("titled") and is_topics_request(message.content):
+            # Only the topic list so far: otherwise the sidebar shows the
+            # button's action name ("quick_reply") until a real question.
+            # Still untitled, so that question replaces this name.
+            await _rename_thread(TOPICS_THREAD_NAME)
     finally:
         cl.user_session.set("busy", False)

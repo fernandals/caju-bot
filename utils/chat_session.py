@@ -21,6 +21,10 @@ TUTOR_STATE_KEY = "tutor_state"
 # question click (chainlit_app.on_style_choice), until the generated title.
 NEW_THREAD_NAME = "Nova conversa"
 
+# Same, for a conversation whose first turn only listed the course topics
+# (the TOPICS button or the same question typed - chainlit_app.on_message).
+TOPICS_THREAD_NAME = "Conteúdos da disciplina"
+
 
 def truncate_for_edit(messages: list, message_id: str) -> bool:
     """
@@ -46,7 +50,7 @@ def needs_title(name: str | None) -> bool:
     """
     return (
         not name
-        or name in (ACTION_NAME, STYLE_ACTION_NAME, NEW_THREAD_NAME)
+        or name in (ACTION_NAME, STYLE_ACTION_NAME, NEW_THREAD_NAME, TOPICS_THREAD_NAME)
         or is_smalltalk(name)
     )
 
