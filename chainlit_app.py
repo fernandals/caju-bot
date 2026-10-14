@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.chat_pipeline import load_pipeline
+from agent.outline import cached_course_outline
 from agent.graph import is_topics_request
 from agent.nodes import latest_student_question
 from agent.profiler import profile_student, worth_profiling
@@ -93,13 +94,21 @@ ROSTER = load_roster(Path(os.getenv("ROSTER_PATH", "data/roster.txt")))
 
 # ---------------- "LEIA-ME" PAGE ----------------
 # The welcome/readme page is generated per container from the baked-in
-# knowledge base (course name + the materials it indexed) so it always
-# matches the course actually shipped, with nothing hardcoded. Chainlit
-# re-reads this file on every /project/settings request; the app language
-# is pinned to pt-BR (.chainlit/config.toml), so it looks for
-# chainlit_pt-BR.md and falls back to the static chainlit.md if writing
-# the generated file fails for any reason.
-def _render_readme() -> str:
+# knowledge base so it always matches the course actually shipped, with
+# nothing hardcoded. Chainlit re-reads this file on every
+# /project/settings request; the app language is pinned to pt-BR
+# (.chainlit/config.toml), so it looks for chainlit_pt-BR.md and falls
+# back to the static chainlit.md if writing the generated file fails.
+#
+# Topics are the course outline (agent/outline.py, the same list "Quais
+# assuntos posso estudar?" gives) - the materials' file names, listed
+# before, read like "TRAB 2A UNIDADE - 2022.1.pdf". Written at startup
+# from the outline's cache, and again once the pipeline has built it
+# (_get_pipeline) for a KB that had none yet.
+README_PATH = Path("chainlit_pt-BR.md")
+
+
+def _render_readme(topics: list[str]) -> str:
     lines = [
         f"# Tutor Virtual — {DISCIPLINE}",
         "",
@@ -108,33 +117,37 @@ def _render_readme() -> str:
         "disponibilizado pelo professor — não busca informações fora desse "
         "conteúdo.",
         "",
-        "Sempre que possível, o tutor indica o capítulo e a seção do material "
-        "em que se baseou, para você conferir na fonte.",
+        "Cada resposta traz links para as páginas do material em que se "
+        "baseou: clique em um deles para abrir o PDF e conferir na fonte.",
     ]
 
-    try:
-        materials = describe_course_materials(DISCIPLINE)
-    except Exception:
-        materials = []
-
-    if materials:
-        lines += ["", "## Material coberto", ""]
-        for m in materials:
-            if m["chapter"] is not None and m["title"]:
-                lines.append(f"- **Capítulo {m['chapter']}** — {m['title']}")
-            elif m["chapter"] is not None:
-                lines.append(f"- **Capítulo {m['chapter']}** ({m['file']})")
-            else:
-                lines.append(f"- {m['file']}")
+    if topics:
+        lines += ["", "## Assuntos da disciplina", ""]
+        # Bullets: the readme dialog clips two-digit list numbers ("10." -> ".0").
+        lines += [f"- {t}" for t in topics]
+    else:
+        try:
+            materials = describe_course_materials(DISCIPLINE)
+        except Exception:
+            materials = []
+        if materials:
+            lines += ["", "## Material coberto", ""]
+            lines += [f"- {m['file']}" for m in materials]
 
     lines += [
         "",
         "## Como usar",
         "",
         "- Pergunte sobre conceitos, definições e exemplos vistos na disciplina.",
-        "- Peça explicações passo a passo, comparações ou mais exemplos.",
+        "- O tutor vai te guiando com perguntas para você chegar à resposta; "
+        "se travar ou estiver com pressa (\"tenho prova amanhã\"), ele explica direto.",
+        "- Use os botões abaixo das respostas para ver os assuntos, revisar "
+        "para a prova ou pedir um exercício — ao resolver, mande sua resposta "
+        "que ele corrige.",
         "- Use **Novo chat** para recomeçar do zero; as conversas anteriores "
         "continuam salvas na barra lateral.",
+        "- Em computador compartilhado, saia da sua conta pelo menu do seu "
+        "avatar, no canto superior direito.",
         "",
         "O tutor é um apoio ao estudo e pode cometer erros — confirme sempre as "
         "informações importantes no material e nas aulas.",
@@ -144,16 +157,22 @@ def _render_readme() -> str:
     return "\n".join(lines)
 
 
-try:
-    Path("chainlit_pt-BR.md").write_text(_render_readme(), encoding="utf-8")
-except OSError:
-    pass
+def _write_readme(topics: list[str]) -> None:
+    try:
+        README_PATH.write_text(_render_readme(topics), encoding="utf-8")
+    except OSError:
+        pass
+
+
+_write_readme(cached_course_outline(DISCIPLINE))
 
 
 @functools.lru_cache(maxsize=1)
 def _get_pipeline():
     """Built once per container process (mirrors the old @st.cache_resource)."""
-    return load_pipeline(DISCIPLINE)
+    pipeline = load_pipeline(DISCIPLINE)
+    _write_readme(pipeline[2].course_outline)
+    return pipeline
 
 
 def _run_graph_sync(graph, state):

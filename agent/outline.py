@@ -80,6 +80,20 @@ def _materials_text(subject: str) -> str:
     return "\n".join(lines)
 
 
+def cached_course_outline(subject: str) -> list[str]:
+    """The topic list if already built for this KB - no model call."""
+    kb_dir = knowledge_base_dir(subject)
+    cache = kb_dir / OUTLINE_FILE if kb_dir else None
+
+    if cache is None or not cache.is_file():
+        return []
+
+    try:
+        return json.loads(cache.read_text(encoding="utf-8"))["topics"]
+    except (OSError, ValueError, KeyError):
+        return []
+
+
 def load_course_outline(subject: str, language: str, model) -> list[str]:
     """
     The cached topic list, built on first use. Empty if the KB has no

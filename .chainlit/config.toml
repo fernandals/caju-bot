@@ -133,7 +133,7 @@ cot = "hidden"
 # The CSS file can be served from the public directory or via an external link.
 # "?v=": browsers keep these files cached (no cache headers from
 # Chainlit) - change the version whenever the file changes.
-custom_css = "/public/style.css?v=2026-10-14b"
+custom_css = "/public/style.css?v=2026-10-14c"
 
 # Specify additional attributes for a custom CSS file
 # custom_css_attributes = "media=\"print\""
