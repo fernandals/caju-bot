@@ -136,7 +136,7 @@ custom_css = "/public/style.css"
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-custom_js = "/public/app.js"
+custom_js = "/public/login-unmask.js"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"

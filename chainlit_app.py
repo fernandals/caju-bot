@@ -500,14 +500,8 @@ async def _send_welcome():
     # Ready-made starters ride on the greeting itself: Chainlit's own
     # @cl.set_starters only renders while the thread has no messages, and
     # this greeting is a message.
-    # "Sair" is a client-side link (public/logout.js): a student who sits
-    # down at a computer still logged in as someone else sees the name
-    # here and can leave that account in one click.
     welcome = cl.Message(
-        content=(
-            f"{greeting}Tire suas dúvidas sobre **{DISCIPLINE}**.\n\n"
-            f"*Não é você? [Sair](#sair)*"
-        ),
+        content=f"{greeting}Tire suas dúvidas sobre **{DISCIPLINE}**.",
         actions=_actions(STARTERS),
     )
     await welcome.send()
