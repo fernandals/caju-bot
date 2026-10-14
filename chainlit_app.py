@@ -34,7 +34,7 @@ from utils.chat_session import (
     truncate_for_edit,
     tutor_state_snapshot,
 )
-from utils.citations import highlight_citations
+from utils.citations import highlight_citations, replace_with_label
 from utils.formatting import render_math
 from utils.helpers import is_enrolled, load_roster
 from utils.metrics import (
@@ -624,7 +624,7 @@ def _linkify_citations(final_state, answer: str):
                 )
             )
 
-        answer = answer.replace(citation, label)
+        answer = replace_with_label(answer, citation, label)
 
     return answer, elements
 

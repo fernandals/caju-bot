@@ -28,7 +28,11 @@ def format_citation(metadata: ChunkMetadata) -> str:
     if location_label:
         parts.append(location_label)
 
-    return f"[{', '.join(parts)}]"
+    # Single spaces only: extracted titles can carry runs of spaces
+    # ("Exercícios de  Árvore AVL"), which substitute_citation_markers'
+    # whitespace tidying would collapse - and a citation that no longer
+    # matches exactly never becomes a PDF link (chainlit_app._linkify_citations).
+    return " ".join(f"[{', '.join(parts)}]".split())
 
 
 def _section_location(metadata: ChunkMetadata) -> str | None:

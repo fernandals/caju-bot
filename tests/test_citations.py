@@ -12,6 +12,9 @@ regressing silently.
 import pytest
 
 from agent.nodes import substitute_citation_markers
+from rag.citation import format_citation
+from rag.models import ChunkMetadata
+from utils.citations import replace_with_label
 
 CITATIONS = {"DOC_1": "[Chapter 2, Pages 4-5]", "DOC_2": "[Chapter 3, Page 8]"}
 
@@ -109,3 +112,40 @@ def test_nested_list_indentation_is_kept():
     text = "- item\n    - subitem"
 
     assert substitute_citation_markers(text, CITATIONS) == text
+
+
+LABEL = "📄 EDB2 09 AVL.pdf, p. 27"
+
+
+@pytest.mark.parametrize("before", ["fez!", "fez.", "fez"])
+def test_label_is_never_glued_to_the_previous_character(before):
+    result = replace_with_label(f"{before}[EDB2 09 AVL.pdf, Slide 27]", "[EDB2 09 AVL.pdf, Slide 27]", LABEL)
+
+    assert result == f"{before} {LABEL}"
+
+
+def test_label_after_a_space_is_unchanged():
+    result = replace_with_label("fez! [EDB2 09 AVL.pdf, Slide 27]", "[EDB2 09 AVL.pdf, Slide 27]", LABEL)
+
+    assert result == f"fez! {LABEL}"
+
+
+def test_citation_survives_marker_substitution_with_spaced_title():
+    metadata = ChunkMetadata(
+        source="EDB2 09 AVL.pdf",
+        file_path="EDB2 09 AVL.pdf",
+        doc_type="slides",
+        page_start=77,
+        page_end=77,
+        section_id="77",
+        section_title="Exercícios de  Árvore AVL",
+        chunk_index=0,
+        total_chunks=1,
+        start_offset=0,
+        end_offset=1,
+    )
+    citation = format_citation(metadata)
+
+    result = substitute_citation_markers("Pratique [[CITE:DOC_1]].", {"DOC_1": citation})
+
+    assert citation in result
