@@ -131,14 +131,16 @@ cot = "hidden"
 
 # Specify a CSS file that can be used to customize the user interface.
 # The CSS file can be served from the public directory or via an external link.
-custom_css = "/public/style.css"
+# "?v=": browsers keep these files cached (no cache headers from
+# Chainlit) - change the version whenever the file changes.
+custom_css = "/public/style.css?v=2026-10-14b"
 
 # Specify additional attributes for a custom CSS file
 # custom_css_attributes = "media=\"print\""
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-custom_js = "/public/login-redirect.js"
+custom_js = "/public/app.js?v=2026-10-14b"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"

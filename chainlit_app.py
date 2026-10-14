@@ -295,7 +295,7 @@ def get_data_layer():
 
 # ---------------- LOGIN ----------------
 # Chainlit's password login, fed by the app's own page (public/login.html,
-# reached through public/login-redirect.js): the "password" field carries
+# reached through public/app.js): the "password" field carries
 # the student's display name - not a real secret, not checked against
 # anything. Matrícula is the actual identity, validated against the roster
 # allowlist.
