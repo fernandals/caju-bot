@@ -203,11 +203,12 @@ def _page_hit(doc, q) -> bool:
     return meta.get("page_start", 0) <= q["page"] <= meta.get("page_end", 0)
 
 
-def run(questions_path: Path, kb_dirs: list[Path]) -> None:
+def run(questions_path: Path, kb_dirs: list[Path], save: Path | None = None) -> None:
     questions = json.loads(questions_path.read_text(encoding="utf-8"))
     judge = _model().with_structured_output(Support)
 
     print(f"{len(questions)} questions ({questions_path})\n")
+    saved = {}
 
     for kb_dir in kb_dirs:
         retriever = open_retriever(kb_dir)
@@ -232,6 +233,12 @@ def run(questions_path: Path, kb_dirs: list[Path]) -> None:
             first_hit = next((i for i, d in enumerate(docs, 1) if _page_hit(d, q)), None)
             rows.append(
                 {
+                    "question": q["question"],
+                    "retrieved": [
+                        f"{d.metadata.get('file_path')} p.{d.metadata.get('page_start')}-{d.metadata.get('page_end')}"
+                        for d in docs
+                    ],
+                    "supporting": sorted(supporting),
                     "group": q.get("kind", "specific"),
                     "useful": len(supporting & set(range(1, len(docs) + 1))),
                     "supported@1": 1 in supporting,
@@ -240,6 +247,8 @@ def run(questions_path: Path, kb_dirs: list[Path]) -> None:
                     "rr": 1 / first_hit if first_hit else 0.0,
                 }
             )
+
+        saved[str(kb_dir)] = rows
 
         chunk_tokens = [token_length(_body(d.page_content)) for docs in retrieved for d in docs]
         chunk_pages = [
@@ -275,6 +284,10 @@ def run(questions_path: Path, kb_dirs: list[Path]) -> None:
             f" {statistics.mean(chunk_pages):.1f} pages on average\n"
         )
 
+    if save:
+        save.write_text(json.dumps(saved, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"per-question results -> {save}")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -289,6 +302,7 @@ def main() -> None:
     run_cmd = sub.add_parser("run", help="score KB folders against a question set")
     run_cmd.add_argument("questions", type=Path)
     run_cmd.add_argument("kb_dirs", type=Path, nargs="+")
+    run_cmd.add_argument("--save", type=Path, help="write per-question results (JSON) here")
 
     args = parser.parse_args()
 
@@ -300,7 +314,7 @@ def main() -> None:
         for kb_dir in args.kb_dirs:
             if not (kb_dir / "metadata.json").is_file():
                 sys.exit(f"Error: '{kb_dir}' is not a knowledge base folder.")
-        run(args.questions, args.kb_dirs)
+        run(args.questions, args.kb_dirs, args.save)
 
 
 if __name__ == "__main__":

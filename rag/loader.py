@@ -7,7 +7,7 @@ from rag.models import (
     RawDocument,
     RawDocumentMetadata,
 )
-from utils.helpers import detect_pdf_type
+from utils.helpers import detect_pdf_type, page_heading_lines
 
 
 def load_documents(
@@ -61,6 +61,7 @@ def load_pdf(file_path: Path) -> RawDocument:
                 number=page_number,
                 text=text,
                 start_offset=len(full_text),
+                heading_lines=page_heading_lines(page),
             )
         )
 

@@ -1,5 +1,6 @@
 import math
 import re
+import statistics
 import unicodedata
 import uuid
 from pathlib import Path
@@ -10,13 +11,23 @@ import fitz
 
 from rag.models import DocumentType, RawDocument
 
+# Words a course's material uses for its numbered parts, in Portuguese and
+# English - "Chapter" alone missed every Portuguese deck.
+_CHAPTER_WORDS = (
+    r"(?:chapter|cap[ií]tulo|cap\.|aula|unidade|lecture|module|m[óo]dulo|unit)"
+)
+
+# A running header like "Chapter 2. Viewpoints" / "Aula 3 - Árvores", at
+# the start of the line or after a separator ("Book – Part I – Chapter 2.
+# Title") - never mid-sentence ("como vimos na aula 3 - árvores").
 CHAPTER_HEADER_REGEX = re.compile(
-    r"Chapter\s+(\d+)\.\s*(.+)",
+    rf"(?:^\s*|[–—|-]\s*){_CHAPTER_WORDS}\s+(\d+)\s*[.:–-]\s*(.+)",
     re.IGNORECASE,
 )
 
+# A file name like "SAIA-Chapter12.pdf" / "Aula_03.pdf".
 CHAPTER_FILENAME_REGEX = re.compile(
-    r"Chapter[\s_-]?(\d+)",
+    rf"{_CHAPTER_WORDS}[\s_-]?(\d+)",
     re.IGNORECASE,
 )
 
@@ -25,27 +36,137 @@ def _page_is_landscape(page: fitz.Page) -> bool:
 
   return height > 0 and width / height > 1.1
 
+# Slides vs documents, measured on two courses' material (EDB2 slides and
+# lists, Software Architecture book chapters and a deck): body text of
+# slides is 2.4-5.6% of the page width, of documents 1.6-2.0%; slides
+# carry 18-79 words per page, documents 110-477.
+SLIDE_MIN_FONT_RATIO = 0.022
+SLIDE_MAX_WORDS_PER_PAGE = 90
+
+
+def _spans(page: fitz.Page) -> list[tuple[float, str]]:
+  """(font size, text) of every non-blank text line on the page."""
+  lines = []
+
+  for block in page.get_text("dict")["blocks"]:
+    for line in block.get("lines", []):
+      text = "".join(span["text"] for span in line["spans"]).strip()
+      if text:
+        lines.append((max(span["size"] for span in line["spans"]), text))
+
+  return lines
+
+
+def _body_font_size(lines: list[tuple[float, str]]) -> float:
+  """Font size most of the page's characters are set in."""
+  sizes = [size for size, text in lines for _ in text]
+  return statistics.median(sizes) if sizes else 0.0
+
+
 def detect_pdf_type(pdf: fitz.Document, sample_pages: int = 5) -> DocumentType:
   """
-  Classifies a PDF as SLIDES or PDF by page aspect ratio, voting over the
-  first `sample_pages` pages instead of trusting page 1 alone: a portrait
-  cover in front of landscape slides (or a scanned landscape textbook)
-  would otherwise be misfiled, and that choice picks which parser runs.
+  Classifies a PDF as SLIDES or PDF over its first `sample_pages` pages,
+  by a vote of three signals - any two make it slides:
+
+  - landscape pages;
+  - large body text relative to the page width;
+  - few words per page.
+
+  The page shape alone misfiled decks exported in portrait (a
+  PowerPoint "handout" with one slide per page), which then went through
+  the book parser as a single section.
   """
   n = min(sample_pages, pdf.page_count)
 
   if n == 0:
     return DocumentType.UNKNOWN
 
-  landscape = sum(_page_is_landscape(pdf[i]) for i in range(n))
+  pages = [pdf[i] for i in range(n)]
+  landscape = sum(_page_is_landscape(p) for p in pages) * 2 > n
 
-  return DocumentType.SLIDES if landscape * 2 > n else DocumentType.PDF
+  lines = [line for p in pages for line in _spans(p)]
+  large_font = (
+    _body_font_size(lines) / statistics.median(p.rect.width for p in pages)
+    >= SLIDE_MIN_FONT_RATIO
+  )
 
-def extract_slide_structure(text: str) -> tuple[str, str]:
+  sparse = (
+    statistics.median(len(p.get_text("text").split()) for p in pages)
+    < SLIDE_MAX_WORDS_PER_PAGE
+  )
+
+  return DocumentType.SLIDES if landscape + large_font + sparse >= 2 else DocumentType.PDF
+
+
+# A heading is set at least this much larger than the page's body text.
+HEADING_MIN_SCALE = 1.2
+
+# Longer than this, the "largest text" is not a title (a page set in one
+# big font, a quote).
+HEADING_MAX_CHARS = 150
+
+
+def page_heading_lines(page: fitz.Page) -> list[str]:
+  """
+  The page's title lines: those set in its largest font, when that font
+  clearly stands out from the body text, in reading order. A title that
+  wraps ("Árvores" / "AVL") comes back whole, which the first line of the
+  page text did not give. Empty when nothing stands out.
+  """
+  # Lines without words ("+", a bullet, a big arrow) are decoration - a
+  # deck set its "+" section markers larger than the titles.
+  lines = [(size, text) for size, text in _spans(page) if _letters(text) >= 1]
+
+  if not lines:
+    return []
+
+  top = max(size for size, _ in lines)
+  heading = [text for size, text in lines if size >= top * 0.9]
+  rest = [(size, text) for size, text in lines if size < top * 0.9]
+
+  # A page with nothing else on it (a cover: "Árvores" / "AVL") is all
+  # title; otherwise the title must stand out from the rest.
+  if rest and top < _body_font_size(rest) * HEADING_MIN_SCALE:
+    return []
+
+  if len(" ".join(heading)) > HEADING_MAX_CHARS or _letters("".join(heading)) < 3:
+    return []
+
+  return heading
+
+
+def _letters(text: str) -> int:
+  return sum(c.isalpha() for c in text)
+
+
+def clean_title(text: str | None) -> str:
+  """
+  A title as a single-spaced line: extracted text keeps layout runs of
+  spaces, symbol-font glyphs (private-use characters, e.g. a bullet
+  "\uf0e5") and leading markers ("+Viewpoints", "• Título").
+  """
+  text = "".join(c for c in (text or "") if unicodedata.category(c) != "Co")
+  text = " ".join(text.split())
+
+  while text and not (text[0].isalnum() or text[0] in "(\"'¿¡"):
+    text = text[1:].lstrip()
+
+  return text
+
+def extract_slide_structure(text: str, heading_lines: list[str] | None = None) -> tuple[str, str]:
   lines = [l.strip() for l in text.splitlines() if l.strip()]
 
   if not lines:
     return "", ""
+
+  # The title from the slide's largest font (page_heading_lines), when it
+  # has one; the body is the rest of the slide.
+  if heading_lines:
+    body = list(lines)
+    for heading in heading_lines:
+      if heading.strip() in body:
+        body.remove(heading.strip())
+    return clean_title(" ".join(heading_lines)), "\n".join(body)
 
   # Skip boilerplate leading lines: a repeated running header (e.g. "Book –
   # Part I – Chapter 2. Title") and bare transition markers ("+") used
@@ -56,7 +177,7 @@ def extract_slide_structure(text: str) -> tuple[str, str]:
   ):
     lines = lines[1:]
 
-  title = lines[0]
+  title = clean_title(lines[0])
   body = "\n".join(lines[1:])
 
   return title, body

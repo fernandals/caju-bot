@@ -16,6 +16,8 @@ class Page(BaseModel):
     number: int
     text: str
     start_offset: int
+    # Lines set in the page's largest font (utils.helpers.page_heading_lines).
+    heading_lines: list[str] = Field(default_factory=list)
 
 class RawDocumentMetadata(BaseModel):
     source: str

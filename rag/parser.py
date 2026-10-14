@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 from rag.models import (
     DocumentType,
@@ -10,6 +11,7 @@ from rag.models import (
 )
 from rag.splitter import token_length
 from utils.helpers import (
+    clean_title,
     detect_chapter_from_filename,
     detect_chapter_header,
     extract_slide_structure,
@@ -18,28 +20,56 @@ from utils.helpers import (
 
 
 # Recorded in each KB's metadata.json. 1.1: slides grouped (group_slides).
-PARSER_VERSION = "1.1"
+# 1.2: slide/document by three signals, titles from the largest font,
+# boilerplate kept out of document titles, chapters beyond "Chapter N".
+PARSER_VERSION = "1.2"
 
 
 def parse_documents(
     docs: list[RawDocument],
 ) -> list[ParsedDocument]:
 
-    parsed = []
+    boilerplate = find_boilerplate_lines(docs)
 
-    for doc in docs:
-        parsed.append(parse_document(doc))
-
-    return parsed
+    return [parse_document(doc, boilerplate) for doc in docs]
 
 def parse_document(
     doc: RawDocument,
+    boilerplate: frozenset[str] = frozenset(),
 ) -> ParsedDocument:
 
     if doc.metadata.doc_type == DocumentType.SLIDES:
-        return parse_slides(doc)
+        return parse_slides(doc, boilerplate)
 
-    return parse_pdf(doc)
+    return parse_pdf(doc, boilerplate)
+
+
+# A line opening the first page of this many of a course's files (and at
+# least BOILERPLATE_MIN_FILES) is the institution / department / teacher
+# letterhead, not a title. It made "Universidade Federal do Rio Grande do
+# Norte" the title of 7 of 20 files - in every chunk header.
+BOILERPLATE_MIN_SHARE = 0.25
+BOILERPLATE_MIN_FILES = 3
+
+
+def _title_key(line: str) -> str:
+    return clean_title(line).casefold()
+
+
+def find_boilerplate_lines(docs: list[RawDocument]) -> frozenset[str]:
+    counts: dict[str, int] = {}
+
+    for doc in docs:
+        if not doc.pages:
+            continue
+        first_page = doc.pages[0]
+        opening = [l for l in first_page.text.splitlines() if l.strip()][:8]
+        for key in {_title_key(l) for l in opening + first_page.heading_lines}:
+            counts[key] = counts.get(key, 0) + 1
+
+    needed = max(BOILERPLATE_MIN_FILES, BOILERPLATE_MIN_SHARE * len(docs))
+
+    return frozenset(key for key, n in counts.items() if n >= needed)
 
 # ==== PDFs ====
 
@@ -66,7 +96,7 @@ SECTION_REGEX = re.compile(
 
 def heading_title(match: re.Match) -> str:
     """Title from whichever SECTION_REGEX branch matched (2-space or 1-space)."""
-    return (match.group(2) or match.group(3) or "").strip()
+    return clean_title(match.group(2) or match.group(3))
 
 
 def drop_toc_duplicates(
@@ -108,9 +138,10 @@ def drop_toc_duplicates(
 
 def parse_pdf(
     doc: RawDocument,
+    boilerplate: frozenset[str] = frozenset(),
 ) -> ParsedDocument:
 
-    title = extract_document_title(doc)
+    title = extract_document_title(doc, boilerplate)
 
     sections = extract_sections(doc)
 
@@ -122,31 +153,27 @@ def parse_pdf(
 
 def extract_document_title(
     doc: RawDocument,
-) -> str | None:
+    boilerplate: frozenset[str] = frozenset(),
+) -> str:
     """
-    Very simple heuristic: the first line on page 1 that reads like a
-    title rather than a bare page number, date, or rule line. This string
-    ends up in every chunk header for the document, so a junk first line
-    would otherwise pollute all of its embeddings.
+    The title set in page 1's largest font, minus any course-wide
+    letterhead lines (find_boilerplate_lines); else the file name. This
+    string ends up in every chunk header for the document, so a junk
+    title pollutes all of its embeddings - the first line of the page,
+    used before, was often the institution's name or a sentence.
     """
 
-    if not doc.pages:
-        return None
+    if doc.pages:
+        heading = [
+            line
+            for line in doc.pages[0].heading_lines
+            if _title_key(line) not in boilerplate
+        ]
+        title = clean_title(" ".join(heading))
+        if _looks_like_title(title):
+            return title
 
-    lines = [
-        line.strip()
-        for line in doc.pages[0].text.splitlines()
-        if line.strip()
-    ]
-
-    if not lines:
-        return None
-
-    for line in lines[:10]:
-        if _looks_like_title(line):
-            return line
-
-    return lines[0]
+    return clean_title(Path(doc.metadata.file_path).stem.replace("_", " "))
 
 
 def _looks_like_title(line: str) -> bool:
@@ -295,6 +322,7 @@ def apply_chapter_fallback(
 
 def parse_slides(
     doc: RawDocument,
+    boilerplate: frozenset[str] = frozenset(),
 ) -> ParsedDocument:
 
     sections = []
@@ -302,9 +330,11 @@ def parse_slides(
     current_chapter_number = None
     current_chapter_title = None
 
+    doc_title = extract_document_title(doc, boilerplate)
+
     for page in doc.pages:
 
-        title, body = extract_slide_structure(page.text)
+        title, body = extract_slide_structure(page.text, page.heading_lines)
 
         # Slide decks typically repeat a "Chapter N. Title" running header
         # on every content page. Carry the last detected chapter forward
@@ -314,6 +344,13 @@ def parse_slides(
         if header_number:
             current_chapter_number = header_number
             current_chapter_title = header_title
+
+        # A cover that is only the deck's title adds nothing the chunk
+        # headers don't already carry - but as a chunk made of the very
+        # words a topic question uses, it outranked the slides with the
+        # content (scored with evals/retrieval_eval.py).
+        if page.number == 1 and not body.strip() and title == doc_title:
+            continue
 
         blocks = create_semantic_blocks(
             body,
@@ -341,7 +378,7 @@ def parse_slides(
 
     return ParsedDocument(
         metadata=doc.metadata,
-        title=extract_document_title(doc),
+        title=doc_title,
         sections=group_slides(drop_slide_builds(sections)),
     )
 
