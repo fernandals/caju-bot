@@ -28,6 +28,25 @@ class QuickReply(NamedTuple):
 
 ACTION_NAME = "quick_reply"
 
+# Thread metadata key holding the last reply's buttons: Chainlit doesn't
+# persist actions, so a resumed conversation puts them back from here
+# (chainlit_app.on_chat_resume).
+QUICK_REPLIES_KEY = "quick_replies"
+
+
+def save_quick_replies(replies: list["QuickReply"]) -> list[dict]:
+    return [r._asdict() for r in replies]
+
+
+def load_quick_replies(saved) -> list["QuickReply"] | None:
+    """The saved buttons; None if nothing usable was saved (older threads)."""
+    if not isinstance(saved, list):
+        return None
+    try:
+        return [QuickReply(**r) for r in saved]
+    except TypeError:
+        return None
+
 # Shown under the welcome message (and after a bare greeting). Course-
 # agnostic on purpose: one deploy serves one course, and the knowledge
 # base's chapter titles are often missing, so topic-specific starters

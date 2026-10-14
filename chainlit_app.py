@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import json
 import logging
 import os
 import sqlite3
@@ -34,7 +35,7 @@ from utils.chat_session import (
     truncate_for_edit,
     tutor_state_snapshot,
 )
-from utils.citations import highlight_citations, replace_with_label
+from utils.citations import find_ref_labels, highlight_citations, ref_label, replace_with_label
 from utils.formatting import render_math
 from utils.helpers import is_enrolled, load_roster
 from utils.metrics import (
@@ -47,6 +48,7 @@ from utils.metrics import (
 from utils.personalization import assign_arm
 from utils.quick_replies import (
     ACTION_NAME,
+    QUICK_REPLIES_KEY,
     STARTERS,
     STYLE_ACTION_NAME,
     STYLE_CHOICES,
@@ -54,6 +56,8 @@ from utils.quick_replies import (
     STYLE_QUESTION,
     STYLE_SKIP,
     QuickReply,
+    load_quick_replies,
+    save_quick_replies,
     quick_replies_for,
 )
 from utils.student_profile import (
@@ -561,6 +565,8 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
         ),  # type: ignore
     )
 
+    await _restore_chips_and_buttons(thread, cl.user_session.get("state"))
+
     # Threads from before smart titles (or opened with a greeting / a
     # button click) still carry a useless name - retitle on the next turn.
     cl.user_session.set("titled", not needs_title(thread.get("name")))
@@ -569,17 +575,80 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
     cl.user_session.set("course_tagged", True)
 
 
-def _short_ref_label(metadata: dict) -> str:
-    """Compact chip label for a citation, e.g. '📄 SAIA-Chapter13.pdf, p. 2'."""
-    file_name = metadata.get("file_path") or "material"
-    start = metadata.get("page_start")
-    end = metadata.get("page_end")
+async def _restore_chips_and_buttons(thread: cl.types.ThreadDict, state):
+    """
+    Chainlit restores a resumed thread's messages but neither the PDF
+    elements behind the citation chips (never persisted: no blob storage
+    configured) nor the action buttons (never persisted at all). Rebuild
+    both: each chip's PDF from its label in the text (utils.citations.
+    find_ref_labels), and the last reply's buttons from the thread
+    metadata saved after each turn (_persist_turn_metadata).
+    """
+    chat_steps = [
+        s for s in thread.get("steps", [])
+        if s.get("type") in ("user_message", "assistant_message")
+    ]
 
-    if start and end and end != start:
-        return f"📄 {file_name}, pp. {start}–{end}"
-    if start:
-        return f"📄 {file_name}, p. {start}"
-    return f"📄 {file_name}"
+    # Into the thread dict itself, not sent: Chainlit runs on_chat_resume
+    # BEFORE it sends the thread to the browser, which then replaces the
+    # page's elements with the thread's - wiping any sent earlier. And
+    # elements arriving that way must carry their url already.
+    session = cl.context.session
+    elements = thread.get("elements") or []
+
+    for step in chat_steps:
+        if step["type"] != "assistant_message":
+            continue
+        for label, file_name, page in find_ref_labels(step.get("output", "")):
+            pdf_path = resolve_source_pdf(DISCIPLINE, file_name)
+            if pdf_path is None:
+                continue
+            try:
+                stored = await session.persist_file(
+                    name=label, path=str(pdf_path), content=None, mime="application/pdf"
+                )
+            except Exception:  # noqa: BLE001 - a missing chip beats a failed resume
+                logger.warning("Could not restore citation %s", label, exc_info=True)
+                continue
+            element = cl.Pdf(
+                name=label,
+                url=f"/project/file/{stored['id']}?session_id={session.id}",
+                display="side",
+                page=page,
+                mime="application/pdf",
+            )
+            element.for_id = step["id"]
+            elements.append(element.to_dict())
+
+    thread["elements"] = elements
+
+    if not chat_steps or chat_steps[-1]["type"] != "assistant_message":
+        return
+
+    metadata = thread.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except ValueError:
+            metadata = {}
+
+    buttons = load_quick_replies((metadata or {}).get(QUICK_REPLIES_KEY))
+    if buttons is None:
+        # Saved before buttons were - or the thread is only the greeting.
+        if not any(s["type"] == "user_message" for s in chat_steps):
+            buttons = STARTERS
+        else:
+            buttons = quick_replies_for(state) if state is not None else []
+
+    if not buttons:
+        return
+
+    last = chat_steps[-1]
+    message = cl.Message(content=last.get("output", ""), id=last["id"])
+    message.actions = _actions(buttons)
+    for action in message.actions:
+        await action.send(for_id=last["id"])
+    cl.user_session.set("buttons_message", message)
 
 
 def _linkify_citations(final_state, answer: str):
@@ -619,7 +688,7 @@ def _linkify_citations(final_state, answer: str):
 
         label = label_by_target.get(target)
         if label is None:
-            label = _short_ref_label(metadata)
+            label = ref_label(file_name, page_start, metadata.get("page_end"))
             label_by_target[target] = label
             elements.append(
                 cl.Pdf(
@@ -722,7 +791,7 @@ async def _set_thread_title(final_state):
 
 
 # ---------------- THREAD METADATA ----------------
-async def _persist_turn_metadata(final_state):
+async def _persist_turn_metadata(final_state, buttons: list[QuickReply]):
     """
     After each turn, save the tutor's state in the thread metadata (for
     on_chat_resume) and, on a new thread's first turn, its course (so the
@@ -735,7 +804,8 @@ async def _persist_turn_metadata(final_state):
     persists into the same metadata on disconnect - keeping both in sync
     so that write never puts back an older one.
     """
-    metadata = {}
+    metadata = {QUICK_REPLIES_KEY: save_quick_replies(buttons)}
+    cl.user_session.set(QUICK_REPLIES_KEY, metadata[QUICK_REPLIES_KEY])
 
     snapshot = tutor_state_snapshot(final_state)
     if snapshot is not None:
@@ -851,10 +921,11 @@ async def on_message(message: cl.Message):
         answer = final_state["messages"][-1].content
         answer, elements = _linkify_citations(final_state, answer)
 
+        buttons = quick_replies_for(final_state)
         reply = cl.Message(
             content=render_math(highlight_citations(answer)),
             elements=elements,
-            actions=_actions(quick_replies_for(final_state)),
+            actions=_actions(buttons),
         )
         await reply.send()
         cl.user_session.set("buttons_message", reply)
@@ -877,7 +948,7 @@ async def on_message(message: cl.Message):
                 reply.id,
             )
 
-        await _persist_turn_metadata(final_state)
+        await _persist_turn_metadata(final_state, buttons)
 
         # Title from the first real question, not from a greeting - in the
         # background so the student never waits on it.

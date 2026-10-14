@@ -22,7 +22,9 @@ from utils.quick_replies import (
     STARTERS,
     TEST_ME,
     TOPICS,
+    load_quick_replies,
     quick_replies_for,
+    save_quick_replies,
 )
 
 
@@ -177,3 +179,15 @@ class TestDialogueWindow:
         messages = [SystemMessage("app prompt")] + [HumanMessage(str(i)) for i in range(10)]
 
         assert [m.content for m in dialogue_window(messages, 3)] == ["7", "8", "9"]
+
+
+class TestSavedQuickReplies:
+    def test_round_trip(self):
+        assert load_quick_replies(save_quick_replies([HINT, DONT_KNOW])) == [HINT, DONT_KNOW]
+
+    def test_empty_list_means_no_buttons(self):
+        assert load_quick_replies([]) == []
+
+    @pytest.mark.parametrize("saved", [None, "x", [{"label": "only"}]])
+    def test_unusable_is_none(self, saved):
+        assert load_quick_replies(saved) is None

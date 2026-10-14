@@ -14,7 +14,7 @@ import pytest
 from agent.nodes import substitute_citation_markers
 from rag.citation import format_citation
 from rag.models import ChunkMetadata
-from utils.citations import replace_with_label
+from utils.citations import find_ref_labels, ref_label, replace_with_label
 
 CITATIONS = {"DOC_1": "[Chapter 2, Pages 4-5]", "DOC_2": "[Chapter 3, Page 8]"}
 
@@ -149,3 +149,22 @@ def test_citation_survives_marker_substitution_with_spaced_title():
     result = substitute_citation_markers("Pratique [[CITE:DOC_1]].", {"DOC_1": citation})
 
     assert citation in result
+
+
+class TestRefLabels:
+    def test_labels_round_trip(self):
+        text = (
+            f"Uma AVL {ref_label('EDB2 09 AVL.pdf', 27, 27)}. Rotações "
+            f"{ref_label('EDB2 09 AVL.pdf', 30, 32)} e de novo "
+            f"{ref_label('EDB2 09 AVL.pdf', 27, 27)}; ver {ref_label('Plano de Curso 2022.1 - DIM0117.pdf')}"
+        )
+
+        assert find_ref_labels(text) == [
+            ("📄 EDB2 09 AVL.pdf, p. 27", "EDB2 09 AVL.pdf", 27),
+            ("📄 EDB2 09 AVL.pdf, pp. 30–32", "EDB2 09 AVL.pdf", 30),
+            ("📄 Plano de Curso 2022.1 - DIM0117.pdf", "Plano de Curso 2022.1 - DIM0117.pdf", None),
+        ]
+
+    def test_no_labels(self):
+        assert find_ref_labels("sem citações [algo.pdf]") == []
+        assert find_ref_labels(None) == []
