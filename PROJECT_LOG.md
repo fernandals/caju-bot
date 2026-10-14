@@ -616,3 +616,115 @@ iniciada por clique) entra na regra de retitular.
   com `prior_knowledge_analogy` no estudo.
 - Estado restaurado é o do último turno salvo; se o servidor cair no meio
   de um turno, retoma do anterior.
+
+---
+
+## 📅 Data
+- **2026-10-14** (nova disciplina, revisão do RAG, ajustes de conversa e visual)
+
+### 📌 Status do Projeto
+Troca da disciplina de teste para **Estruturas de Dados Básicas II**
+(20 PDFs, sem os gabaritos de prova; conversas e KB antigas guardadas em
+`langchain-rag-backup-2026-10-14/`, fora do repositório). Testar com
+material de slides expôs problemas de ingestão que o material de livro
+de Software Architecture escondia; a maior parte do dia foi revisar o RAG
+de forma agnóstica à disciplina, medindo cada mudança.
+
+### ✅ Mudanças
+**Conversa**
+- 1ª conversa: a pergunta de estilo vem antes da saudação; a saudação
+  aparece depois da resposta (ou do "Pular").
+- "Quais assuntos posso estudar?" responde com a lista de tópicos da
+  disciplina, gerada uma vez por KB a partir dos nomes dos arquivos e
+  títulos de seção e guardada em `outline.json` na pasta da KB
+  (`agent/outline.py`), sem passar pelo ensino guiado.
+- "Revisar para a prova" sem tema vira um **roteiro da disciplina
+  inteira**: busca por tópico, cada trecho avaliado contra o tópico que o
+  trouxe, e o máximo de citações possível.
+- Nomes de conversa no padrão: "Conteúdos da disciplina", "Revisão geral
+  da disciplina", "Nova conversa" (até o título gerado).
+- Fórmulas em LaTeX e código em Markdown. O modelo escreve `\( \)` /
+  `\[ \]`, e todo `$` solto vira literal (`utils/formatting.py`) — "R$ 10"
+  não quebra a mensagem. Mensagens do aluno aparecem como texto puro.
+- **Correção de exercício**: quando o aluno manda a resposta a um
+  exercício que o tutor passou, o arco não reinicia (o tópico que só
+  aparece na tentativa não conta como troca de assunto), a resposta é
+  instruída a conferir a tentativa antes de tudo, e é escrita pelo
+  `REVIEW_MODEL` (gpt-4.1-mini) — o gpt-4o-mini elogiava código errado.
+- Ao reabrir uma conversa, as citações voltam como link (reconstruídas a
+  partir do texto; o Chainlit não salva os PDFs sem blob storage) e os
+  botões da última resposta voltam (salvos no metadata da thread).
+- Bugs de citação: citação grudada num "!" virava imagem quebrada em
+  Markdown; título de slide com espaço duplo impedia o link; a limpeza de
+  espaços achatava a indentação de código.
+- Login dura 3 horas (era 15 dias), por causa de computadores
+  compartilhados.
+
+**RAG** (medido com o eval novo; números em EDB2)
+- `evals/retrieval_eval.py`: gera perguntas a partir das páginas dos PDFs
+  (específicas + uma ampla por arquivo) e compara KBs com o buscador do
+  app — um modelo juiz diz quais trechos respondem. `create_kb --out-dir`
+  gera uma KB de teste que o app não carrega.
+- Parser 1.1: slides deixaram de ser um trecho cada (1/3 quase vazios —
+  título, cabeçalho, passo de animação). Passos de animação descartados,
+  slides agrupados até 200 tokens; slide divisor abre grupo novo.
+  1º trecho respondendo: 68% → 86%; trechos quase vazios recuperados:
+  21% → 2%.
+- Parser 1.2: slide/documento por três sinais (deck exportado em retrato
+  era lido como livro, citação "pp. 1–10"); título do slide e do arquivo
+  pela maior fonte; cabeçalho da instituição fora do título (era o título
+  de 7 dos 20 arquivos, no cabeçalho de todos os trechos); capítulos em
+  pt e en; capa só com o título descartada. Software Architecture
+  91% → 94%, EDB2 estável.
+- Busca: similaridade com k=8 (era MMR com k=5) — 2,0 trechos úteis por
+  pergunta chegam à resposta, em vez de 1,6. Busca híbrida com BM25
+  (`rag/retrieval.py`) foi testada e piorou; fica só como opção do eval.
+  Cabeçalhos menores no embedding também foram testados, sem ganho.
+- Avaliador de trechos: gpt-4.1-mini com nota mínima 0.6 (era nano com
+  0.5) — mantém 88% dos trechos úteis em vez de 71%, com mais precisão;
+  o nano dava notas em degraus.
+
+**Visual**
+- Página de login própria (`public/login.html`): matrícula e nome como
+  campos comuns (o nome aparecia como senha mascarada); mesmo `/login` do
+  Chainlit por trás.
+- Sem "Utilizando Pensando..." (`cot = "hidden"`); três pontinhos
+  animados enquanto o tutor responde, também depois de um clique em botão
+  (antes não aparecia nada nesse caso).
+- O PDF de uma citação só abre no clique (o Chainlit abria sozinho);
+  citações sem caixa alta; "Leia-me" com os assuntos da disciplina e um
+  "Como usar" atualizado; robô pixel art como ícone do tutor, da aba e do
+  login.
+
+**Limpeza**: código morto removido (`print_tutor_state`, `softmax`,
+`KnowledgeBaseMetadata`, o passo "Pensando..."); testes de 13 arquivos /
+2100 linhas para 6 arquivos / 1200 linhas, por área, sem perder cobertura.
+
+### ⚠️ Limitações
+- Fórmulas desenhadas como imagem viram símbolos soltos na extração; o
+  avaliador descarta esses trechos (por isso Equações de Recorrência e
+  Conjuntos Disjuntos podem ficar sem citação na revisão geral). Decidido
+  não adicionar filtro; descrever as páginas com um modelo de visão fica
+  como opção futura.
+- O juiz do eval varia ±3 pontos entre rodadas: comparar pergunta a
+  pergunta (`--save`) antes de concluir algo de diferenças pequenas.
+- Citações de slides agora cobrem uma faixa de páginas (~2 por trecho).
+- Login sem senha: quem sabe uma matrícula entra como aquele aluno
+  (decidido manter assim).
+- `public/app.js` e `public/style.css` dependem de detalhes internos do
+  Chainlit 2.11 (`.loading-cursor`, `.element-link`, `#side-view-title`,
+  a chave de tema `vite-ui-theme`) — revisar ao atualizar o Chainlit.
+- Correção de exercício e avaliador mais caros (~US$ 0,003 a mais por
+  turno).
+
+### 🔜 Próximos Passos
+- Deploy no Railway: gerar a KB com o parser 1.2, `railway up
+  --no-gitignore`, e conferir que `GRADING_MODEL` não está fixado no nano.
+- Decidir o nome do app (`name` no config, nome do arquivo do avatar,
+  título do login e do "Leia-me").
+- Rodar o eval de busca a cada disciplina nova antes dos alunos usarem.
+- Estudo de personalização: muitas mudanças de hoje afetam as respostas
+  (busca, avaliador, correção de exercício, ingestão). A coleta com a
+  turma ainda não começou, então nada a separar por enquanto; se
+  mudanças desse porte acontecerem durante a coleta, registrar a data e
+  analisar antes/depois separadamente.
