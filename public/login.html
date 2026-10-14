@@ -1,0 +1,184 @@
+<!doctype html>
+<!--
+  The app's own login page (public/login-redirect.js sends Chainlit's
+  /login here). Chainlit's built-in form is a username/password form, and
+  this app's second field is the student's name, not a secret: it showed
+  as a masked password with a show/hide toggle. This page posts the same
+  two fields to Chainlit's own /login (auth_callback in chainlit_app.py
+  checks the enrollment ID against the roster), so the session cookie and
+  everything after it are Chainlit's as before.
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutor Virtual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  // Same theme as the chat: Chainlit keeps the student's choice under
+  // this key ("light" / "dark" / "system").
+  (function () {
+    var theme = "system";
+    try { theme = localStorage.getItem("vite-ui-theme") || "system"; } catch (e) {}
+    if (theme !== "system") document.documentElement.dataset.theme = theme;
+  })();
+</script>
+<style>
+  /* Chainlit's own theme values, so this page matches the app. */
+  :root {
+    --background: hsl(0 0% 100%);
+    --foreground: hsl(0 0% 5%);
+    --muted: hsl(0 0% 40%);
+    --input: hsl(0 0% 85%);
+    --primary: hsl(340 92% 52%);
+    --primary-foreground: hsl(0 0% 100%);
+    --error: hsl(0 72% 45%);
+    --radius: 0.75rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --background: hsl(0 0% 13%);
+      --foreground: hsl(0 0% 93%);
+      --muted: hsl(0 0% 71%);
+      --input: hsl(0 1% 26%);
+      --error: hsl(0 80% 70%);
+    }
+  }
+  :root[data-theme="dark"] {
+    --background: hsl(0 0% 13%);
+    --foreground: hsl(0 0% 93%);
+    --muted: hsl(0 0% 71%);
+    --input: hsl(0 1% 26%);
+    --error: hsl(0 80% 70%);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  main { width: 100%; max-width: 320px; }
+
+  h1 { margin: 0 0 0.35rem; font-size: 1.5rem; font-weight: 700; text-align: center; }
+
+  .subtitle { margin: 0 0 1.75rem; color: var(--muted); font-size: 0.9rem; text-align: center; }
+
+  label { display: block; margin: 0 0 0.4rem; font-size: 0.875rem; font-weight: 500; }
+
+  input {
+    width: 100%;
+    height: 2.5rem;
+    margin: 0 0 1.25rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--input);
+    border-radius: calc(var(--radius) - 2px);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.9rem;
+  }
+
+  input:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+  input::placeholder { color: var(--muted); opacity: 0.8; }
+
+  button {
+    width: 100%;
+    height: 2.5rem;
+    margin-top: 0.25rem;
+    border: 0;
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  button:disabled { opacity: 0.6; cursor: default; }
+
+  .error { min-height: 1.25rem; margin: 0.9rem 0 0; color: var(--error); font-size: 0.85rem; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tutor Virtual</h1>
+  <p class="subtitle">Entre com sua matrícula e seu nome</p>
+
+  <form id="login" novalidate>
+    <label for="matricula">Matrícula</label>
+    <input id="matricula" name="username" inputmode="numeric" autocomplete="off"
+           placeholder="Digite sua matrícula" required autofocus>
+
+    <label for="nome">Nome</label>
+    <input id="nome" name="password" type="text" autocomplete="name"
+           placeholder="Digite seu nome" required>
+
+    <button type="submit">Entrar</button>
+    <p class="error" id="error" role="alert"></p>
+  </form>
+</main>
+
+<script>
+  (function () {
+    var form = document.getElementById("login");
+    var error = document.getElementById("error");
+    var button = form.querySelector("button");
+
+    // Already logged in (e.g. the back button): straight to the chat.
+    fetch("/user", { credentials: "same-origin" }).then(function (r) {
+      if (r.ok) window.location.replace("/");
+    }).catch(function () {});
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+
+      var matricula = form.username.value.trim();
+      var nome = form.password.value.trim();
+
+      if (!matricula || !nome) {
+        error.textContent = !matricula ? "Digite sua matrícula." : "Digite seu nome.";
+        (!matricula ? form.username : form.password).focus();
+        return;
+      }
+
+      error.textContent = "";
+      button.disabled = true;
+
+      fetch("/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ username: matricula, password: nome }),
+      })
+        .then(function (r) {
+          if (r.ok) {
+            window.location.replace("/");
+            return;
+          }
+          error.textContent = r.status === 401
+            ? "Matrícula não encontrada nesta turma. Confira e tente de novo."
+            : "Não foi possível entrar agora. Tente de novo em instantes.";
+          button.disabled = false;
+        })
+        .catch(function () {
+          error.textContent = "Sem conexão com o servidor. Tente de novo.";
+          button.disabled = false;
+        });
+    });
+  })();
+</script>
+</body>
+</html>

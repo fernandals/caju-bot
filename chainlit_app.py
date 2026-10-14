@@ -294,11 +294,11 @@ def get_data_layer():
 
 
 # ---------------- LOGIN ----------------
-# Reuses Chainlit's native two-field login form. The "password" field is
-# repurposed to carry the student's display name - not a real secret, not
-# checked against anything (see .chainlit/translations/pt-BR.json for the
-# relabeled "Matrícula"/"Nome completo" fields). Matrícula is the actual
-# identity, validated against the roster allowlist exactly like before.
+# Chainlit's password login, fed by the app's own page (public/login.html,
+# reached through public/login-redirect.js): the "password" field carries
+# the student's display name - not a real secret, not checked against
+# anything. Matrícula is the actual identity, validated against the roster
+# allowlist.
 @cl.password_auth_callback
 def auth_callback(username: str, password: str) -> cl.User | None:
     matricula = username.strip()
