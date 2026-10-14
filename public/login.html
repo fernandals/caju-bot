@@ -13,6 +13,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tutor Virtual</title>
+<link rel="icon" href="/favicon">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -70,6 +71,15 @@
 
   main { width: 100%; max-width: 320px; }
 
+  .avatar {
+    display: block;
+    width: 88px;
+    height: 88px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    image-rendering: pixelated;
+  }
+
   h1 { margin: 0 0 0.35rem; font-size: 1.5rem; font-weight: 700; text-align: center; }
 
   .subtitle { margin: 0 0 1.75rem; color: var(--muted); font-size: 0.9rem; text-align: center; }
@@ -114,6 +124,7 @@
 </head>
 <body>
 <main>
+  <img class="avatar" src="/public/tutor.png" alt="">
   <h1>Tutor Virtual</h1>
   <p class="subtitle">Entre com sua matrícula e seu nome</p>
 
