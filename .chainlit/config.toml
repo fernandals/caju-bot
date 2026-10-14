@@ -29,8 +29,10 @@ unsafe_allow_html = false
 # Process and display mathematical expressions. This can clash with "$" characters in messages.
 latex = true
 
-# Enable rendering of user messages markdown
-user_message_markdown = true
+# Enable rendering of user messages markdown. Off: with latex on, a "$" a
+# student types ("R$ 10") would start a formula. Tutor answers escape it
+# (utils/formatting.render_math); a student's message can't be.
+user_message_markdown = false
 
 # Autoscroll new user messages at the top of the window
 user_message_autoscroll = true

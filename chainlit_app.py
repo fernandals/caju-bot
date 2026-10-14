@@ -35,6 +35,7 @@ from utils.chat_session import (
     tutor_state_snapshot,
 )
 from utils.citations import highlight_citations
+from utils.formatting import render_math
 from utils.helpers import is_enrolled, load_roster
 from utils.metrics import (
     ensure_metrics_schema,
@@ -845,7 +846,7 @@ async def on_message(message: cl.Message):
         answer, elements = _linkify_citations(final_state, answer)
 
         reply = cl.Message(
-            content=highlight_citations(answer),
+            content=render_math(highlight_citations(answer)),
             elements=elements,
             actions=_actions(quick_replies_for(final_state)),
         )
