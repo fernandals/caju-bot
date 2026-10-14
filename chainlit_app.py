@@ -738,10 +738,14 @@ async def on_quick_reply(action: cl.Action):
     await message.send()
 
     # Same "task running" UI state a typed message gets (input disabled,
-    # stop button) - an action call doesn't set it on its own.
+    # stop button) - an action call doesn't set it on its own. And the same
+    # "on_message" run step Chainlit wraps a typed message in (@cl.on_message
+    # registers a wrapped copy but returns the bare function): the waiting
+    # dots only show inside that step.
     await cl.context.emitter.task_start()
     try:
-        await on_message(message)
+        async with cl.Step(name="on_message", type="run", parent_id=message.id):
+            await on_message(message)
     finally:
         await cl.context.emitter.task_end()
 
