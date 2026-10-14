@@ -50,6 +50,20 @@ REVIEW_CANDIDATES_PER_TOPIC = 20
 REVIEW_MIN_BODY_CHARS = 150
 
 
+# Minimum relevance_score (agent/grader.py) for a chunk's evidence to reach
+# the answer. Tied to how the grading model scores: gpt-4.1-nano scored
+# in coarse steps (about 0.4 or 0.7) and, at 0.5, dropped 29% of the
+# chunks the retrieval eval's judge found useful; gpt-4.1-mini at 0.6
+# keeps 88% of them with fewer useless ones (74% vs 66% precision), and
+# reading the disagreements, its extra keeps were mostly right.
+RELEVANCE_THRESHOLD = 0.6
+
+# Lower for a course review: a "partially useful" chunk (it introduces
+# the topic) is still the right place to send the student to study it,
+# which is what that reply's citations are for.
+REVIEW_RELEVANCE_THRESHOLD = 0.5
+
+
 def _chunk_body(doc) -> str:
     return doc.page_content.split("\n\n", 1)[-1]
 
@@ -543,10 +557,7 @@ Retrieved chunk:
         reverse=True,
     )
 
-    # threshold - lower for a course review: a "partially useful" chunk
-    # (it introduces the topic) is still the right place to send the
-    # student to study it, which is what that reply's citations are for.
-    threshold = 0.4 if course_review else 0.5
+    threshold = REVIEW_RELEVANCE_THRESHOLD if course_review else RELEVANCE_THRESHOLD
     kept = [
         (doc, assessment)
         for doc, assessment in scored_docs
