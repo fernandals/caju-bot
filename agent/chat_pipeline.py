@@ -70,7 +70,8 @@ def load_pipeline(discipline_name: str):
         "generation": os.getenv("GENERATION_MODEL", "gpt-4o-mini"),
         "tracking": os.getenv("TRACKING_MODEL", "gpt-4.1-mini"),
         "planning": os.getenv("PLANNING_MODEL", "gpt-4.1-mini"),
-        "grading": os.getenv("GRADING_MODEL", "gpt-4.1-nano")
+        "grading": os.getenv("GRADING_MODEL", "gpt-4.1-nano"),
+        "review": os.getenv("REVIEW_MODEL", "gpt-4.1-mini"),
     }
 
     logger.info("Using models: %s", model_names)
@@ -88,6 +89,7 @@ def load_pipeline(discipline_name: str):
         tracking_llm=_chat(model_names["tracking"]),
         planning_llm=_chat(model_names["planning"]),
         grading_llm=_chat(model_names["grading"]),
+        review_llm=_chat(model_names["review"]),
     )
 
     # Cached in the KB folder after the first load (agent/outline.py).

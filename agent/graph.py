@@ -124,7 +124,15 @@ def build_graph(config: TutorConfig, retriever, models) -> CompiledStateGraph:
     graph.add_node("planning", partial(plan_instruction, config=config, model=models.planning_llm))
     graph.add_node("retrieve", partial(retrieve_documents, retriever=retriever, config=config))
     graph.add_node("assess_documents", partial(assess_documents, config=config, model=models.grading_llm))
-    graph.add_node("generate_answer", partial(generate_answer, config=config, model=models.generation_llm))
+    graph.add_node(
+        "generate_answer",
+        partial(
+            generate_answer,
+            config=config,
+            model=models.generation_llm,
+            review_model=models.review_llm,
+        ),
+    )
 
     graph.add_conditional_edges(
         START,

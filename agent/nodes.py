@@ -20,6 +20,7 @@ from agent.familiarity import topic_familiarity
 from agent.plan_profile import apply_profile_to_plan, leads_with_example
 from agent.profile_notes import select_profile_notes
 from agent.teaching import (
+    continue_exercise,
     is_course_review,
     advance_teaching_state,
     effective_familiarity,
@@ -256,12 +257,15 @@ def plan_instruction(state: TutorState, config: TutorConfig, model):
     # False in the study's "off" arm: no in-session adaptation either.
     adapt = state.get("personalization_on", True)
 
-    proposed_teaching_state = advance_teaching_state(
+    proposed_teaching_state = continue_exercise(
         previous_teaching_state,
-        learning_state,
-        student_profile,
-        familiarity,
-        adapt_in_session=adapt,
+        advance_teaching_state(
+            previous_teaching_state,
+            learning_state,
+            student_profile,
+            familiarity,
+            adapt_in_session=adapt,
+        ),
     )
 
     personalization = personalization_trace(
@@ -354,6 +358,11 @@ Recent conversation:
         student_profile, learning_state, teaching_state, config.subject
     )
     personalization["levers"] += note_levers
+
+    # Remembered for the next turn, whose reply then checks the attempt.
+    teaching_state = teaching_state.model_copy(
+        update={"exercise_pending": answer_plan.strategy == "exercise_first"}
+    )
 
     result = {
         "answer_plan": answer_plan,
@@ -589,7 +598,7 @@ Retrieved chunk:
 
 
 @node("ANSWER GENERATION")
-def generate_answer(state: TutorState, config: TutorConfig, model):
+def generate_answer(state: TutorState, config: TutorConfig, model, review_model=None):
     """
     Generates the final answer to the student's question based on the
     current learning state, the instructional plan, and the retrieved
@@ -612,6 +621,7 @@ def generate_answer(state: TutorState, config: TutorConfig, model):
         example_first=leads_with_example(answer_plan, teaching_state, student_profile),
         course_review=is_course_review(learning_state),
         course_outline=config.course_outline,
+        reviewing_attempt=teaching_state.reviewing_attempt,
     )
 
     context = ""
@@ -672,6 +682,10 @@ EVIDENCE
         reminder += "\n\nAbout this student:\n" + "\n".join(f"- {n}" for n in profile_notes)
 
     turn_reminder = SystemMessage(content=reminder)
+
+    # Checking an exercise attempt takes a stronger model (agent/models.py).
+    if teaching_state.reviewing_attempt and review_model is not None:
+        model = review_model
 
     response = model.invoke(
         [system_prompt]
@@ -743,6 +757,7 @@ def resolve_teaching_instructions(
     example_first: bool = False,
     course_review: bool = False,
     course_outline: list[str] | None = None,
+    reviewing_attempt: bool = False,
 ) -> str:
     """
     Picks the instruction block for generate_answer.
@@ -776,6 +791,10 @@ def resolve_teaching_instructions(
 
     if example_first:
         base = f"{base}\n\n{prompts.EXAMPLE_FIRST_NOTE}"
+
+    # First, so it frames whatever the stage asks for next.
+    if reviewing_attempt:
+        base = f"{prompts.ATTEMPT_REVIEW_NOTE}\n\n{base}"
 
     return base
 

@@ -258,6 +258,19 @@ class TeachingState(BaseModel):
         description="Guided arcs in this conversation that ended with the student mastering the topic.",
     )
 
+    # The exercise loop (agent/teaching.continue_exercise): set by
+    # plan_instruction when a reply poses an exercise, so the next reply
+    # checks the student's attempt instead of moving on.
+    exercise_pending: bool = Field(
+        default=False,
+        description="The last reply gave the student an exercise to attempt.",
+    )
+
+    reviewing_attempt: bool = Field(
+        default=False,
+        description="This reply answers a message that may be the student's attempt at that exercise.",
+    )
+
 class AnswerPlan(BaseModel):
     needs_retrieval: bool = Field(
         default=True,

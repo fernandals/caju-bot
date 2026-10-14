@@ -140,6 +140,32 @@ def guided_turn_cap(
     return max(cap, MIN_GUIDED_ATTEMPTS)
 
 
+def continue_exercise(previous: TeachingState, proposed: TeachingState) -> TeachingState:
+    """
+    The reply after an exercise reviews the student's attempt at it.
+
+    An exercise is often asked for with no topic named ("me passa um
+    exercício"), and the attempt is what finally names one - which
+    advance_teaching_state reads as a topic change and restarts the arc
+    at "introduce" (do not explain anything, just ask), so a wrong attempt
+    went uncorrected. With an exercise pending, a newly named or refined
+    topic stays in the same arc, at "check" (react to what they did).
+    A different topic altogether is still a topic change.
+    """
+    if not previous.exercise_pending:
+        return proposed
+
+    reviewing = proposed.model_copy(update={"reviewing_attempt": True})
+
+    previous_topic = previous.topic_anchor[0]
+    same_arc = previous_topic is None or previous_topic == proposed.topic_anchor[0]
+
+    if proposed.mode == "guided" and proposed.stage == "introduce" and same_arc:
+        return reviewing.model_copy(update={"stage": "check", "turns_in_stage": 0})
+
+    return reviewing
+
+
 def advance_teaching_state(
     previous: TeachingState,
     learning_state: LearningState,

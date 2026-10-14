@@ -87,6 +87,7 @@ chainlit run chainlit_app.py -w --port 8501
 | `ROSTER_PATH` | não | `data/roster.txt` | lista de matrículas autorizadas |
 | `EMBED_MODEL` | não | `text-embedding-3-large` | modelo de embedding |
 | `GENERATION_MODEL` / `PLANNING_MODEL` / `TRACKING_MODEL` / `GRADING_MODEL` | não | ver `agent/chat_pipeline.py` | um modelo por nó do grafo |
+| `REVIEW_MODEL` | não | `gpt-4.1-mini` | escreve a resposta que confere a tentativa do aluno num exercício (só nesses turnos) |
 | `PROFILER_MODEL` | não | `gpt-4.1-mini` | modelo do profiler de aluno (roda 1× por sessão) |
 | `PERSONALIZATION_MODE` | não | `alternate` | estudo de personalização: `alternate` (conversas alternam com/sem perfil por aluno), `always` ou `off` — ver DEPLOY.md |
 | `TITLE_MODEL` | não | `gpt-4.1-nano` | gera o título curto da conversa na barra lateral (1× por conversa) |

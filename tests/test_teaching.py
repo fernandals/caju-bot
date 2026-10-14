@@ -12,8 +12,13 @@ import pytest
 
 from agent.state import LearningState, StudentProfile, TeachingState
 from agent.nodes import resolve_teaching_instructions
-from agent.prompts import DIRECT_MODE_INSTRUCTIONS
-from agent.teaching import GUIDED_TURN_CAP, advance_teaching_state, is_course_review
+from agent.prompts import ATTEMPT_REVIEW_NOTE, DIRECT_MODE_INSTRUCTIONS
+from agent.teaching import (
+    GUIDED_TURN_CAP,
+    advance_teaching_state,
+    continue_exercise,
+    is_course_review,
+)
 
 
 def learning_state(**kwargs) -> LearningState:
@@ -292,3 +297,50 @@ class TestCourseReview:
         )
 
         assert result == DIRECT_MODE_INSTRUCTIONS
+
+
+class TestContinueExercise:
+    def test_no_exercise_pending_changes_nothing(self):
+        proposed = teaching_state(stage="introduce")
+        assert continue_exercise(teaching_state(), proposed) == proposed
+
+    def test_topic_named_by_the_attempt_stays_in_the_arc(self):
+        # "me passa um exercício" names no topic; the attempt does.
+        previous = teaching_state(topic_anchor=(None, None), exercise_pending=True)
+        proposed = teaching_state(topic_anchor=("árvores", "rotações"), stage="introduce")
+
+        result = continue_exercise(previous, proposed)
+
+        assert result.stage == "check"
+        assert result.reviewing_attempt
+
+    def test_refined_subtopic_stays_in_the_arc(self):
+        previous = teaching_state(topic_anchor=("árvores", None), exercise_pending=True)
+        proposed = teaching_state(topic_anchor=("árvores", "AVL"), stage="introduce")
+
+        assert continue_exercise(previous, proposed).stage == "check"
+
+    def test_a_different_topic_is_still_a_topic_change(self):
+        previous = teaching_state(topic_anchor=("árvores", None), exercise_pending=True)
+        proposed = teaching_state(topic_anchor=("heap", None), stage="introduce")
+
+        result = continue_exercise(previous, proposed)
+
+        assert result.stage == "introduce"
+        assert result.reviewing_attempt  # it may still be the attempt
+
+    def test_direct_mode_is_kept(self):
+        previous = teaching_state(exercise_pending=True)
+        proposed = teaching_state(mode="direct", stage="deepen")
+
+        result = continue_exercise(previous, proposed)
+
+        assert (result.mode, result.stage) == ("direct", "deepen")
+        assert result.reviewing_attempt
+
+    def test_attempt_review_note_comes_first(self):
+        result = resolve_teaching_instructions(
+            teaching_state(stage="check"), "guided_teaching", reviewing_attempt=True
+        )
+
+        assert result.startswith(ATTEMPT_REVIEW_NOTE)

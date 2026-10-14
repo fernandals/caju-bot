@@ -459,6 +459,23 @@ STRATEGY_STEP_NOTE = (
     "follow in order."
 )
 
+# Put first when the previous reply gave the student an exercise
+# (agent/teaching.continue_exercise): their message is likely an attempt
+# at it, and an unchecked "Ótimo!" on wrong code teaches the wrong thing.
+ATTEMPT_REVIEW_NOTE = (
+    "YOUR PREVIOUS REPLY GAVE THE STUDENT AN EXERCISE. If their message is "
+    "an attempt at it (code, an answer, a solution, their reasoning), "
+    "CHECK IT before anything else: go through it carefully against what "
+    "the exercise asked and the retrieved material, and open your reply "
+    "by saying plainly whether it is correct. If anything is wrong, name "
+    "each concrete error - the line, step or value, what it does and why "
+    "it is wrong - without rewriting the whole solution for them. Never "
+    "praise or accept an attempt you have not checked, and never call a "
+    "wrong or partial attempt correct. If it is fully correct, say so and "
+    "why. If their message is not an attempt (a question, \"não sei\"), "
+    "ignore this note."
+)
+
 # Appended when the student's profile says they grasp ideas better from a
 # concrete case first (agent/plan_profile.leads_with_example).
 EXAMPLE_FIRST_NOTE = (
