@@ -13,3 +13,25 @@
   white-space: normal;
   padding: 0.08rem 0.4rem;
 }
+
+/* Waiting for the tutor: three bouncing dots instead of Chainlit's single
+ * pulsing one. Same element (Chainlit's .loading-cursor), drawn as three
+ * background circles whose vertical position is animated in turn. "span"
+ * outranks Chainlit's own rule, which loads after this file. */
+span.loading-cursor {
+  --dot: no-repeat radial-gradient(circle closest-side, hsl(var(--muted-foreground)) 90%, transparent);
+  width: 1.75rem;
+  height: 0.875rem;
+  border-radius: 0;
+  background: var(--dot) 0% 50%, var(--dot) 50% 50%, var(--dot) 100% 50%;
+  background-color: transparent;
+  background-size: calc(100% / 3) 50%;
+  animation: loading-dots 1s infinite linear;
+}
+
+@keyframes loading-dots {
+  20% { background-position: 0% 0%, 50% 50%, 100% 50%; }
+  40% { background-position: 0% 100%, 50% 0%, 100% 50%; }
+  60% { background-position: 0% 50%, 50% 100%, 100% 0%; }
+  80% { background-position: 0% 50%, 50% 50%, 100% 100%; }
+}
