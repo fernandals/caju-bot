@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 
 import chainlit as cl
+from chainlit.input_widget import Select
 from chainlit.data import get_data_layer as _chainlit_data_layer
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from dotenv import load_dotenv
@@ -17,7 +18,8 @@ from agent.outline import cached_course_outline
 from agent.graph import is_topics_request
 from agent.nodes import latest_student_question
 from agent.profiler import profile_student, worth_profiling
-from agent.state import StudentProfile, TutorState
+from agent.state import StudentProfile, StyleTracker, TutorState
+from agent.style_tracking import choose_style, start_tracker
 from agent.teaching import is_course_review
 from agent.titler import generate_title
 from rag.knowledge_base import (
@@ -66,7 +68,9 @@ from utils.student_profile import (
     COURSE_METADATA_KEY,
     latest_other_thread,
     load_profile,
+    load_style_tracker,
     save_profile,
+    save_style_tracker,
     scope_to_course,
 )
 
@@ -470,6 +474,98 @@ async def _start_study_session(
     return session, (profile if arm == "on" else StudentProfile())
 
 
+# ---------------- STYLE ----------------
+STYLE_SETTING_ID = "style"
+
+
+async def _load_style_tracker(matricula: str | None, profile: StudentProfile) -> StyleTracker:
+    """The student's style tracker (agent/style_tracking.py); a new one
+    starts from the style they chose, if any."""
+    stored = await asyncio.to_thread(load_style_tracker, matricula) if matricula else None
+    return stored or start_tracker(profile)
+
+
+async def _start_style(matricula: str | None, profile: StudentProfile, arm: str) -> StyleTracker | None:
+    """
+    Load the tracker into the session and show it in the settings panel.
+    Returns what the TUTOR gets: the tracker, or None in the study's "off"
+    arm (no style there - and so no arcs tallied either).
+    """
+    tracker = await _load_style_tracker(matricula, profile)
+    cl.user_session.set("style_tracker", tracker)
+    await _send_style_settings(tracker)
+    return tracker if arm == "on" else None
+
+
+async def _send_style_settings(tracker: StyleTracker):
+    """The style picker in Chainlit's settings panel (header gear)."""
+    items = {label: value for label, value, _ in STYLE_CHOICES if value != STYLE_SKIP}
+    await cl.ChatSettings(
+        [
+            Select(
+                id=STYLE_SETTING_ID,
+                label="Como você prefere que eu explique?",
+                items=items,
+                initial_value=tracker.active,
+                description=(
+                    "O tutor também muda de estilo sozinho quando um não está "
+                    "funcionando. Você pode escolher de novo a qualquer momento."
+                ),
+            )
+        ]
+    ).send()
+
+
+async def _set_style(tracker: StyleTracker):
+    """Keep the session, the tutor's state (in the "on" arm) and the store in sync."""
+    cl.user_session.set("style_tracker", tracker)
+
+    study_session = cl.user_session.get("study_session") or {}
+    state = cl.user_session.get("state")
+    if state is not None and study_session.get("arm") == "on":
+        state["style_tracker"] = tracker
+
+    matricula = _current_matricula()
+    if matricula:
+        await asyncio.to_thread(save_style_tracker, matricula, tracker)
+
+
+async def _choose_style(choice: str) -> StudentProfile | None:
+    """
+    The student picked a style (first-conversation question or settings
+    panel): recorded on the profile as their answer, and the tracker moves
+    to it. Returns the saved profile, or None without a matrícula.
+    """
+    matricula = _current_matricula()
+    if not matricula:
+        return None
+
+    def _save() -> StudentProfile:
+        profile, last_profiled, _ = _course_profile_sync(matricula)
+        update = {"style_asked": True}
+        if choice != STYLE_SKIP:
+            update["stated_style"] = choice
+        profile = profile.model_copy(update=update)
+        save_profile(matricula, profile, last_profiled)
+        return profile
+
+    profile = await asyncio.to_thread(_save)
+
+    if choice != STYLE_SKIP:
+        tracker = cl.user_session.get("style_tracker") or start_tracker(profile)
+        await _set_style(choose_style(tracker, choice))
+
+    return profile
+
+
+@cl.on_settings_update
+async def on_settings_update(settings: dict):
+    choice = settings.get(STYLE_SETTING_ID)
+    tracker = cl.user_session.get("style_tracker")
+    if choice and (tracker is None or choice != tracker.active):
+        await _choose_style(choice)
+
+
 # ---------------- CHAT LIFECYCLE ----------------
 @cl.on_chat_start
 async def on_chat_start():
@@ -478,6 +574,7 @@ async def on_chat_start():
     matricula = _current_matricula()
     profile = await _load_or_refresh_profile(matricula)
     study_session, tutor_profile = await _start_study_session(matricula, profile)
+    tutor_tracker = await _start_style(matricula, profile, study_session["arm"])
 
     cl.user_session.set("graph", graph)
     cl.user_session.set("study_session", study_session)
@@ -487,6 +584,7 @@ async def on_chat_start():
             messages=[tutor_prompt],
             student_profile=tutor_profile,
             personalization_on=study_session["arm"] == "on",
+            style_tracker=tutor_tracker,
         ),  # type: ignore
     )
 
@@ -565,6 +663,7 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
     # the guided arc) instead of restarting the arc on the same topic.
     # Threads from before this was saved resume fresh.
     restored = restore_tutor_state(thread.get("metadata"))
+    tutor_tracker = await _start_style(matricula, profile, study_session["arm"])
 
     cl.user_session.set("graph", graph)
     cl.user_session.set("study_session", study_session)
@@ -574,6 +673,7 @@ async def on_chat_resume(thread: cl.types.ThreadDict):
             messages=messages,
             student_profile=tutor_profile,
             personalization_on=study_session["arm"] == "on",
+            style_tracker=tutor_tracker,
             **restored,
         ),  # type: ignore
     )
@@ -850,31 +950,24 @@ async def _persist_turn_metadata(final_state, buttons: list[QuickReply]):
 async def on_style_choice(action: cl.Action):
     """
     The student's answer to the first-conversation style question: stored
-    as StudentProfile.stated_style, applied from this turn on (in the
-    "on" arm). Not a chat turn - nothing goes through the tutor.
+    as StudentProfile.stated_style and set on the style tracker, applied
+    from this turn on (in the "on" arm). Not a chat turn - nothing goes
+    through the tutor.
     """
-    matricula = _current_matricula()
-    if not matricula:
-        return
-
     choice = action.payload.get("style", STYLE_SKIP)
 
-    def _save() -> StudentProfile:
-        profile, last_profiled, _ = _course_profile_sync(matricula)
-        update = {"style_asked": True}
-        if choice != STYLE_SKIP:
-            update["stated_style"] = choice
-        profile = profile.model_copy(update=update)
-        save_profile(matricula, profile, last_profiled)
-        return profile
-
-    profile = await asyncio.to_thread(_save)
+    profile = await _choose_style(choice)
+    if profile is None:
+        return
 
     study_session = cl.user_session.get("study_session") or {}
     study_session["profile"] = profile
     state = cl.user_session.get("state")
     if state is not None and study_session.get("arm") == "on":
         state["student_profile"] = profile
+
+    if choice != STYLE_SKIP:
+        await _send_style_settings(cl.user_session.get("style_tracker"))
 
     # Chainlit names a thread after its first interaction - here the
     # button's action name ("style_choice") would sit in the sidebar until
@@ -931,6 +1024,11 @@ async def on_message(message: cl.Message):
             return
 
         cl.user_session.set("state", final_state)
+
+        # A guided arc ended this turn (agent/style_tracking.py).
+        tracker = final_state.get("style_tracker")
+        if tracker is not None and tracker != cl.user_session.get("style_tracker"):
+            await _set_style(tracker)
 
         greeted = final_state.get("greeted", False)
 

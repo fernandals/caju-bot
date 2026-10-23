@@ -85,26 +85,6 @@ def _guiding_questions_ineffective(profile: StudentProfile | None) -> bool:
     )
 
 
-def effective_style(profile: StudentProfile | None) -> tuple[str, str | None]:
-    """
-    (explanation style to apply, where it came from: "observed" /
-    "stated" / None). The profiler's observed style wins once the profile
-    is confident; before that, what the student chose when asked in their
-    first conversation applies right away - it is their own answer, not
-    an inference that needs evidence.
-    """
-    if profile is None:
-        return "unknown", None
-
-    if profile_confident(profile) and profile.explanation_style != "unknown":
-        return profile.explanation_style, "observed"
-
-    if profile.stated_style != "unknown":
-        return profile.stated_style, "stated"
-
-    return "unknown", None
-
-
 def session_struggling(teaching_state: TeachingState) -> bool:
     """Guiding has repeatedly failed in this conversation."""
     return (

@@ -910,7 +910,7 @@ RULES:
   conversation gives clear evidence. Prefer keeping the previous value.
 - The profile spans many sessions - do not overfit to one conversation.
   A single frustrated moment is not "frustration_tendency: high"; one
-  request for an example is not "explanation_style: examples".
+  disengaged reply is not "responds_to_guiding_questions: poorly".
 - Leave sessions_observed, confidence, last_updated, course, stated_style
   and style_asked exactly as given; the system manages them.
 - Besides the transcript you may get "Per-turn signals": the tutor's own
@@ -920,11 +920,6 @@ RULES:
   the student got "stuck" every time they were only asked questions.
 
 FIELDS:
-- explanation_style: which way of learning clearly worked best -
-  step_by_step (understanding built one small step at a time), examples
-  (a concrete case before the abstraction), exercises (being asked to
-  explain or work something out). Keep "unknown" until there is real
-  evidence.
 - responds_to_guiding_questions: "well" if the student engages with and
   builds on the tutor's guiding questions; "poorly" if they repeatedly
   ask to just be told, disengage, or get visibly frustrated by them.

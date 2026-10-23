@@ -3,9 +3,9 @@ Deterministic profile rules for the instructional plan - no LLM call.
 
 The planner model (plan_instruction) never sees the student profile, and
 the generator only gets it as a soft hint that the stage rules override.
-So the profile's explanation_style and topic familiarity are applied
-here, in code, after the planner has run - testable, and logged per turn
-for the personalization study.
+So the student's style (agent/style_tracking.py) and the profile's topic
+familiarity are applied here, in code, after the planner has run -
+testable, and logged per turn for the personalization study.
 
 The plan is only adjusted on explanation turns (direct mode, or the
 "deepen" stage): the guided turns stay one question, and the profile must
@@ -16,8 +16,8 @@ intent (exercise_first / hint_only) are left alone.
 """
 
 from agent.familiarity import Familiarity
-from agent.state import AnswerPlan, LearningState, StudentProfile, TeachingState
-from agent.teaching import effective_familiarity, effective_style
+from agent.state import AnswerPlan, LearningState, StudentProfile, StyleTracker, TeachingState
+from agent.teaching import effective_familiarity
 
 _STUDENT_DRIVEN_STRATEGIES = {"exercise_first", "hint_only"}
 
@@ -26,16 +26,13 @@ def is_explanation_turn(teaching_state: TeachingState) -> bool:
     return teaching_state.mode == "direct" or teaching_state.stage == "deepen"
 
 
-def _style(profile: StudentProfile | None) -> str:
-    return effective_style(profile)[0]
-
-
 def apply_profile_to_plan(
     plan: AnswerPlan,
     teaching_state: TeachingState,
     learning_state: LearningState,
     profile: StudentProfile | None,
     familiarity: Familiarity = "new",
+    tracker: StyleTracker | None = None,
 ) -> tuple[AnswerPlan, list[str]]:
     """
     (adjusted plan, levers that changed it). Levers:
@@ -43,14 +40,14 @@ def apply_profile_to_plan(
     - style_steps: step_by_step student -> numbered steps
     - style_examples: examples student -> include an example
     - style_exercises: exercises student -> include an exercise
-    - stated_style: added next to a style_* lever when the style came from
-      the student's own answer to the first-conversation question, not
-      from the profiler (agent/teaching.effective_style)
+    - arc_style: added next to a style_* lever when the style is one the
+      tutor moved to after stuck arcs, not the student's choice
+      (agent/style_tracking.py)
     """
     if not is_explanation_turn(teaching_state) or plan.strategy in _STUDENT_DRIVEN_STRATEGIES:
         return plan, []
 
-    style = _style(profile)
+    style = tracker.active if tracker else None
     updates: dict = {}
     levers: list[str] = []
 
@@ -73,8 +70,8 @@ def apply_profile_to_plan(
     if not updates:
         return plan, []
 
-    if effective_style(profile)[1] == "stated" and any(l.startswith("style_") for l in levers):
-        levers.append("stated_style")
+    if tracker and tracker.source == "arcs" and any(l.startswith("style_") for l in levers):
+        levers.append("arc_style")
 
     return plan.model_copy(update=updates), levers
 
@@ -85,17 +82,18 @@ _GUIDING_STAGES = {"introduce", "check"}
 
 
 def turn_style(
-    plan: AnswerPlan, teaching_state: TeachingState, profile: StudentProfile | None
+    plan: AnswerPlan, teaching_state: TeachingState, tracker: StyleTracker | None
 ) -> tuple[str, str] | None:
     """
     (style, "guiding" / "explaining") - which style block this turn's reply
-    gets (agent/prompts.STYLE_INSTRUCTIONS) - or None: no known style, a
-    strategy the student chose, or a refer / wrap_up turn.
+    gets (agent/prompts.STYLE_INSTRUCTIONS) - or None: no tracker (the
+    study's "off" arm), a strategy the student chose, or a refer / wrap_up
+    turn.
     """
-    style = _style(profile)
-
-    if style == "unknown" or plan.strategy in _STUDENT_DRIVEN_STRATEGIES:
+    if tracker is None or plan.strategy in _STUDENT_DRIVEN_STRATEGIES:
         return None
+
+    style = tracker.active
 
     if is_explanation_turn(teaching_state):
         return style, "explaining"

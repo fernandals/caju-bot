@@ -328,7 +328,9 @@ def record_turn(
             "responseDepth": _field(ap, "response_depth"),
             "teachingMode": _field(ts, "mode"),
             "teachingStage": _field(ts, "stage"),
-            "studentProfile": _field(sp, "explanation_style"),
+            # The style the tutor used (agent/style_tracking.py); None in
+            # the "off" arm.
+            "studentProfile": _field(final_state.get("style_tracker"), "active"),
             "citations": json.dumps(_turn_citations(final_state), ensure_ascii=False),
             "matricula": session.get("matricula"),
             "threadId": session.get("thread_id"),

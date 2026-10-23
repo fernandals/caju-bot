@@ -18,6 +18,7 @@ from agent.state import (
 )
 from agent.familiarity import topic_familiarity
 from agent.plan_profile import apply_profile_to_plan, turn_style
+from agent.style_tracking import arc_outcome, record_arc
 from agent.profile_notes import select_profile_notes
 from agent.teaching import (
     continue_exercise,
@@ -358,16 +359,25 @@ Recent conversation:
     if is_course_review(learning_state) and config.course_outline:
         answer_plan = answer_plan.model_copy(update={"needs_retrieval": True})
 
-    # The profile's explanation style / topic familiarity, applied to the
+    # A guided arc that ended this turn counts for the style used in it;
+    # enough stuck ones in a row switch the style (agent/style_tracking.py).
+    tracker = state.get("style_tracker")
+    outcome = arc_outcome(previous_teaching_state, teaching_state)
+    if tracker is not None and outcome is not None:
+        tracker, switched_to = record_arc(tracker, outcome)
+        if switched_to:
+            personalization["levers"].append(f"style_switch_{switched_to}")
+
+    # The student's style / the profile's topic familiarity, applied to the
     # plan in code on explanation turns (agent/plan_profile.py).
     answer_plan, plan_levers = apply_profile_to_plan(
-        answer_plan, teaching_state, learning_state, student_profile, familiarity
+        answer_plan, teaching_state, learning_state, student_profile, familiarity, tracker
     )
     personalization["levers"] += plan_levers
     personalization["plan_changed"] = bool(plan_levers)
 
     # The style block the reply gets (agent/prompts.STYLE_INSTRUCTIONS).
-    style = turn_style(answer_plan, teaching_state, student_profile)
+    style = turn_style(answer_plan, teaching_state, tracker)
     if style:
         personalization["levers"].append(f"style_note_{style[0]}")
 
@@ -392,6 +402,7 @@ Recent conversation:
         "teaching_state": teaching_state,
         "personalization": personalization,
         "profile_notes": profile_notes,
+        "style_tracker": tracker,
         # Clear the greeting flag a previous small-talk turn may have left
         # in the persisted session state - this is a real teaching turn.
         "greeted": False,
@@ -638,7 +649,7 @@ def generate_answer(state: TutorState, config: TutorConfig, model, review_model=
     teaching_instructions = resolve_teaching_instructions(
         teaching_state,
         answer_plan.strategy,
-        style=turn_style(answer_plan, teaching_state, student_profile),
+        style=turn_style(answer_plan, teaching_state, state.get("style_tracker")),
         course_review=is_course_review(learning_state),
         course_outline=config.course_outline,
         reviewing_attempt=teaching_state.reviewing_attempt,
@@ -733,24 +744,12 @@ EVIDENCE
 NO_PROFILE_TEXT = "(No profile yet - this is one of the first sessions with this student.)"
 
 
-_STYLE_PHRASING = {
-    "step_by_step": "Learns best when understanding is built one small step at a time.",
-    "examples": "Grasps ideas better from a concrete example before the theory.",
-    "exercises": "Learns best by being asked to explain or work something out.",
-}
-
-
 def render_student_profile(profile: StudentProfile) -> str:
     """Compact, prompt-ready rendering - only the parts we actually know."""
     parts: list[str] = []
 
     if profile.tutor_note:
         parts.append(profile.tutor_note)
-
-    if profile.explanation_style in _STYLE_PHRASING:
-        parts.append(_STYLE_PHRASING[profile.explanation_style])
-    elif profile.stated_style in _STYLE_PHRASING:
-        parts.append(f"Said so themselves: {_STYLE_PHRASING[profile.stated_style]}")
 
     if profile.prior_knowledge:
         parts.append(f"Knows from outside this course: {'; '.join(profile.prior_knowledge)}.")

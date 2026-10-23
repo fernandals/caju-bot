@@ -5,6 +5,10 @@ from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
 
+# How the tutor shapes its replies for a student (agent/prompts.STYLE_INSTRUCTIONS).
+Style = Literal["step_by_step", "examples", "exercises"]
+
+
 class StudentProfile(BaseModel):
     """
     Slow-moving, cross-session picture of how one student learns. Loaded
@@ -13,18 +17,6 @@ class StudentProfile(BaseModel):
     student's previous conversation. Persisted per matrícula in
     utils/student_profile.py.
     """
-
-    explanation_style: Literal["step_by_step", "examples", "exercises", "unknown"] = Field(
-        default="unknown",
-        description=(
-            "How this student best learns. "
-            "'step_by_step' = understanding built one small step at a time; "
-            "'examples' = a concrete case (from the material, or an everyday "
-            "analogy) before the abstraction; "
-            "'exercises' = being asked to explain or work something out. "
-            "'unknown' until there is clear evidence."
-        ),
-    )
 
     responds_to_guiding_questions: Literal["well", "poorly", "unknown"] = Field(
         default="unknown",
@@ -121,7 +113,7 @@ class StudentProfile(BaseModel):
         ),
     )
 
-    stated_style: Literal["step_by_step", "examples", "exercises", "unknown"] = Field(
+    stated_style: Style | Literal["unknown"] = Field(
         default="unknown",
         description=(
             "Explanation style the student CHOSE when asked in their first "
@@ -134,6 +126,27 @@ class StudentProfile(BaseModel):
         default=False,
         description="Whether the student already answered (or skipped) the style question. System-managed.",
     )
+
+class ArcTally(BaseModel):
+    mastered: int = 0
+    stuck: int = 0
+
+
+class StyleTracker(BaseModel):
+    """
+    Which style the tutor uses with a student, and how guided arcs went in
+    each (agent/style_tracking.py). Decided in code, not by the profiler:
+    the student's choice sets it, and STYLE_SWITCH_STUCK_ARCS stuck arcs
+    in a row move it to another style. Persisted per matrícula
+    (utils/student_profile.py); unlike StudentProfile it changes during a
+    conversation - a switch applies from the next arc on.
+    """
+
+    active: Style = "step_by_step"
+    source: Literal["default", "chosen", "arcs"] = "default"
+    record: dict[str, ArcTally] = Field(default_factory=dict)
+    stuck_streak: int = 0
+
 
 class LearningState(BaseModel):
     topic: Optional[str] = Field(
@@ -428,6 +441,10 @@ class TutorState(MessagesState):
     # off adaptation that is not profile-based (in-session adaptation in
     # agent/teaching.py). Missing = on (CLI, tests).
     personalization_on: bool
+
+    # The style tracker (agent/style_tracking.py); None in the study's
+    # "off" arm and outside the app - no style, nothing tracked.
+    style_tracker: Optional[StyleTracker]
 
     # What the profile knows about THIS topic (misconceptions, what worked
     # before, an analogy bridge), picked in code by plan_instruction and

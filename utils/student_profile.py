@@ -16,7 +16,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agent.state import StudentProfile
+from agent.state import StudentProfile, StyleTracker
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +29,19 @@ CREATE TABLE IF NOT EXISTS student_profiles (
     "last_profiled_thread" TEXT,
     "updatedAt" TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS style_trackers (
+    "matricula" TEXT PRIMARY KEY,
+    "tracker" TEXT NOT NULL,
+    "updatedAt" TEXT NOT NULL
+);
 """
 
 _MESSAGE_STEP_TYPES = ("user_message", "assistant_message")
 
 # Profile fields about the COURSE, not the learner: they are reset when the
 # deployment switches to a different course. Everything else
-# (explanation_style / stated_style, responds_to_guiding_questions,
+# (stated_style, responds_to_guiding_questions,
 # frustration_tendency, prior_knowledge, sessions_observed / confidence)
 # describes how the student learns and carries over.
 _COURSE_FIELDS = ("solid_topics", "shaky_topics", "misconceptions", "what_clicked", "tutor_note")
@@ -135,6 +141,48 @@ def save_profile(
             conn.close()
     except Exception:  # noqa: BLE001 - never break a session over profiling
         logger.warning("Could not save profile for %s", matricula, exc_info=True)
+
+
+def load_style_tracker(matricula: str, db_path: Path = DB_PATH) -> StyleTracker | None:
+    """A student's style tracker (agent/style_tracking.py), or None if they
+    have none yet - also on any read error."""
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT tracker FROM style_trackers WHERE matricula = ?", (matricula,)
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row:
+            return StyleTracker.model_validate_json(row[0])
+    except Exception:  # noqa: BLE001 - start a fresh tracker instead
+        logger.warning("Could not load style tracker for %s", matricula, exc_info=True)
+
+    return None
+
+
+def save_style_tracker(matricula: str, tracker: StyleTracker, db_path: Path = DB_PATH) -> None:
+    """Upsert a student's style tracker. Swallows errors (logged) like save_profile."""
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        try:
+            conn.execute(
+                """
+                INSERT INTO style_trackers (matricula, tracker, updatedAt)
+                VALUES (?, ?, ?)
+                ON CONFLICT(matricula) DO UPDATE SET
+                    tracker = excluded.tracker,
+                    updatedAt = excluded.updatedAt
+                """,
+                (matricula, tracker.model_dump_json(), datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - never break a session over tracking
+        logger.warning("Could not save style tracker for %s", matricula, exc_info=True)
 
 
 COURSE_METADATA_KEY = "course"

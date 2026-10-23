@@ -14,11 +14,11 @@ from agent.plan_profile import apply_profile_to_plan, turn_style
 from agent.profile_notes import select_profile_notes
 from agent.profiler import _confidence_for, profile_student, worth_profiling
 from agent.prompts import INTRODUCE_STYLED, STYLE_INSTRUCTIONS, TEACHING_STAGE_INSTRUCTIONS
-from agent.state import AnswerPlan, LearningState, StudentProfile, TeachingState, TutorConfig
+from agent.state import AnswerPlan, ArcTally, LearningState, StudentProfile, StyleTracker, TeachingState, TutorConfig
+from agent.style_tracking import STYLE_SWITCH_STUCK_ARCS, arc_outcome, choose_style, next_style, record_arc, start_tracker
 from agent.teaching import (
     PROFILE_CONFIDENCE_FLOOR,
     advance_teaching_state,
-    effective_style,
     personalization_trace,
 )
 from utils.chat_session import should_ask_style
@@ -72,47 +72,51 @@ def test_topic_familiarity():
 # ---------------- plan rules ----------------
 
 
+def tracker(style: str = "step_by_step", source: str = "chosen", **kwargs) -> StyleTracker:
+    return StyleTracker(active=style, source=source, **kwargs)
+
+
 @pytest.mark.parametrize(
-    "profile, familiarity, plan_kwargs, comprehension, expected, levers",
+    "style, familiarity, comprehension, expected, levers",
     [
-        (StudentProfile(**CONFIDENT), "shaky", {}, "medium", {"strategy": "step_by_step"}, ["shaky_topic_steps"]),
-        (StudentProfile(explanation_style="step_by_step", **CONFIDENT), "new", {}, "medium", {"strategy": "step_by_step"}, ["style_steps"]),
-        (StudentProfile(explanation_style="examples", **CONFIDENT), "new", {}, "medium", {"include_examples": True}, ["style_examples"]),
-        (StudentProfile(explanation_style="exercises", **CONFIDENT), "new", {}, "medium", {"include_exercises": True}, ["style_exercises"]),
-        # The student's own answer to the style question applies right away.
-        (StudentProfile(stated_style="step_by_step"), "new", {}, "medium", {"strategy": "step_by_step"}, ["style_steps", "stated_style"]),
+        (None, "shaky", "medium", {"strategy": "step_by_step"}, ["shaky_topic_steps"]),
+        (tracker("step_by_step"), "new", "medium", {"strategy": "step_by_step"}, ["style_steps"]),
+        (tracker("examples"), "new", "medium", {"include_examples": True}, ["style_examples"]),
+        (tracker("exercises"), "new", "medium", {"include_exercises": True}, ["style_exercises"]),
+        # A style the tutor moved to after stuck arcs is flagged as such.
+        (tracker("examples", source="arcs"), "new", "medium", {"include_examples": True}, ["style_examples", "arc_style"]),
     ],
 )
-def test_profile_shapes_explanations(profile, familiarity, plan_kwargs, comprehension, expected, levers):
+def test_profile_shapes_explanations(style, familiarity, comprehension, expected, levers):
     learning = LearningState(topic="t", comprehension_level=comprehension)
 
-    adjusted, used = apply_profile_to_plan(plan(**plan_kwargs), DEEPEN, learning, profile, familiarity)
+    adjusted, used = apply_profile_to_plan(plan(), DEEPEN, learning, StudentProfile(**CONFIDENT), familiarity, style)
 
     assert {k: getattr(adjusted, k) for k in expected} == expected
     assert used == levers
 
 
 def test_plan_rules_leave_alone_what_they_should():
-    styled = StudentProfile(explanation_style="step_by_step", **CONFIDENT)
+    steps = tracker("step_by_step")
     # Guided turns and a strategy the student chose.
-    assert apply_profile_to_plan(plan(), CHECK, LS, styled, "shaky") == (plan(), [])
-    assert apply_profile_to_plan(plan(strategy="exercise_first"), DEEPEN, LS, styled) == (plan(strategy="exercise_first"), [])
-    # The study's "off" arm gets an empty profile: every rule inert.
-    assert apply_profile_to_plan(plan(), DEEPEN, LS, StudentProfile(), "shaky") == (plan(), [])
+    assert apply_profile_to_plan(plan(), CHECK, LS, StudentProfile(**CONFIDENT), "shaky", steps) == (plan(), [])
+    assert apply_profile_to_plan(plan(strategy="exercise_first"), DEEPEN, LS, None, "new", steps) == (plan(strategy="exercise_first"), [])
+    # The study's "off" arm: empty profile and no tracker - every rule inert.
+    assert apply_profile_to_plan(plan(), DEEPEN, LS, StudentProfile(), "shaky", None) == (plan(), [])
     # Direct mode counts as an explanation turn.
-    direct, levers = apply_profile_to_plan(plan(strategy="direct_answer"), TeachingState(mode="direct", stage="deepen"), LS, styled)
+    direct, levers = apply_profile_to_plan(plan(strategy="direct_answer"), TeachingState(mode="direct", stage="deepen"), LS, None, "new", steps)
     assert direct.strategy == "step_by_step" and levers == ["style_steps"]
 
 
 @pytest.mark.parametrize("style", ["step_by_step", "examples", "exercises"])
 def test_style_shapes_every_teaching_turn(style):
-    profile = StudentProfile(stated_style=style)
+    styled = tracker(style)
 
     # Guided turns get the style too - not only the explanation.
-    assert turn_style(plan(), INTRODUCE, profile) == (style, "guiding")
-    assert turn_style(plan(), CHECK, profile) == (style, "guiding")
-    assert turn_style(plan(), DEEPEN, profile) == (style, "explaining")
-    assert turn_style(plan(strategy="direct_answer"), TeachingState(mode="direct"), profile) == (style, "explaining")
+    assert turn_style(plan(), INTRODUCE, styled) == (style, "guiding")
+    assert turn_style(plan(), CHECK, styled) == (style, "guiding")
+    assert turn_style(plan(), DEEPEN, styled) == (style, "explaining")
+    assert turn_style(plan(strategy="direct_answer"), TeachingState(mode="direct"), styled) == (style, "explaining")
 
     block = STYLE_INSTRUCTIONS[style]["guiding"]
     assert block in resolve_teaching_instructions(CHECK, "guided_teaching", style=(style, "guiding"))
@@ -130,15 +134,15 @@ def test_a_style_replaces_the_first_question_cue():
 
 
 def test_no_style_block_where_it_does_not_belong():
-    examples = StudentProfile(stated_style="examples")
+    examples = tracker("examples")
 
-    assert turn_style(plan(), CHECK, StudentProfile()) is None  # unknown / the "off" arm
+    assert turn_style(plan(), CHECK, None) is None  # the "off" arm
     assert turn_style(plan(strategy="exercise_first"), CHECK, examples) is None  # student chose it
     assert turn_style(plan(), WRAP_UP, examples) is None
     assert turn_style(plan(), TeachingState(stage="refer"), examples) is None
 
 
-# ---------------- stated vs observed style ----------------
+# ---------------- the student's style ----------------
 
 
 def test_style_question_only_until_answered_or_observed():
@@ -148,12 +152,48 @@ def test_style_question_only_until_answered_or_observed():
     assert not should_ask_style(StudentProfile(sessions_observed=1))
 
 
-def test_stated_style_until_a_confident_observation():
-    stated = StudentProfile(stated_style="examples")
-    assert effective_style(stated) == ("examples", "stated")
-    assert effective_style(stated.model_copy(update={"explanation_style": "exercises", "confidence": 0.6})) == ("exercises", "observed")
-    assert effective_style(stated.model_copy(update={"explanation_style": "exercises", "confidence": 0.2})) == ("examples", "stated")
-    assert effective_style(StudentProfile()) == ("unknown", None)
+def test_tracker_starts_from_the_chosen_style():
+    assert start_tracker(StudentProfile(stated_style="examples")) == tracker("examples")
+    # Skipped the question: step by step, the tutor's default.
+    assert start_tracker(StudentProfile()) == StyleTracker(active="step_by_step", source="default")
+
+
+def test_arc_outcome_from_the_arc_counters():
+    before = TeachingState(session_arcs_mastered=1, session_arcs_stuck=1)
+    assert arc_outcome(before, before.model_copy(update={"session_arcs_mastered": 2})) == "mastered"
+    assert arc_outcome(before, before.model_copy(update={"session_arcs_stuck": 2})) == "stuck"
+    assert arc_outcome(before, before) is None
+
+
+def test_stuck_arcs_in_a_row_switch_the_style():
+    current = tracker("exercises")
+
+    for _ in range(STYLE_SWITCH_STUCK_ARCS - 1):
+        current, switched = record_arc(current, "stuck")
+        assert switched is None and current.active == "exercises"
+
+    current, switched = record_arc(current, "stuck")
+    assert switched == current.active == "step_by_step"  # untried styles tie: STYLES order
+    assert (current.source, current.stuck_streak) == ("arcs", 0)
+    assert current.record["exercises"] == ArcTally(stuck=STYLE_SWITCH_STUCK_ARCS)
+
+
+def test_a_mastered_arc_resets_the_streak():
+    current, _ = record_arc(tracker("examples", stuck_streak=STYLE_SWITCH_STUCK_ARCS - 1), "mastered")
+    assert current.stuck_streak == 0 and current.active == "examples"
+    assert current.record["examples"] == ArcTally(mastered=1)
+
+
+def test_switch_goes_to_the_best_record():
+    record = {"step_by_step": ArcTally(stuck=2), "examples": ArcTally(mastered=3, stuck=1)}
+    assert next_style(tracker("exercises", record=record)) == "examples"
+    # Untried (0) beats a losing record.
+    assert next_style(tracker("examples", record=record)) == "exercises"
+
+
+def test_choosing_a_style_clears_the_streak():
+    chosen = choose_style(tracker("examples", source="arcs", stuck_streak=2), "exercises")
+    assert (chosen.active, chosen.source, chosen.stuck_streak) == ("exercises", "chosen", 0)
 
 
 # ---------------- what the profile knows about this topic ----------------
@@ -237,7 +277,7 @@ def test_profiler_cannot_change_system_fields():
 
 
 def test_course_switch_keeps_the_learner_and_drops_the_course():
-    learner = dict(explanation_style="examples", frustration_tendency="high", stated_style="exercises", confidence=0.9)
+    learner = dict(frustration_tendency="high", stated_style="exercises", confidence=0.9)
     course = dict(solid_topics=["client-server"], shaky_topics=["pipe-filter"], tutor_note="n", misconceptions=["m"], what_clicked=["w"])
     profile = StudentProfile(course="A", prior_knowledge=["Python"], **learner, **course)
 
