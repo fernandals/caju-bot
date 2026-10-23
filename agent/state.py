@@ -14,16 +14,14 @@ class StudentProfile(BaseModel):
     utils/student_profile.py.
     """
 
-    explanation_style: Literal[
-        "concise", "detailed", "example_first", "step_by_step", "unknown"
-    ] = Field(
+    explanation_style: Literal["step_by_step", "examples", "exercises", "unknown"] = Field(
         default="unknown",
         description=(
-            "How this student best receives an explanation. "
-            "'concise' = wants the short answer; "
-            "'detailed' = wants the full picture; "
-            "'example_first' = needs a concrete case before the abstraction; "
-            "'step_by_step' = wants sequential reasoning. "
+            "How this student best learns. "
+            "'step_by_step' = understanding built one small step at a time; "
+            "'examples' = a concrete case (from the material, or an everyday "
+            "analogy) before the abstraction; "
+            "'exercises' = being asked to explain or work something out. "
             "'unknown' until there is clear evidence."
         ),
     )
@@ -123,9 +121,7 @@ class StudentProfile(BaseModel):
         ),
     )
 
-    stated_style: Literal[
-        "concise", "detailed", "example_first", "step_by_step", "unknown"
-    ] = Field(
+    stated_style: Literal["step_by_step", "examples", "exercises", "unknown"] = Field(
         default="unknown",
         description=(
             "Explanation style the student CHOSE when asked in their first "

@@ -17,7 +17,7 @@ from agent.state import (
     TutorState,
 )
 from agent.familiarity import topic_familiarity
-from agent.plan_profile import apply_profile_to_plan, leads_with_example
+from agent.plan_profile import apply_profile_to_plan, turn_style
 from agent.profile_notes import select_profile_notes
 from agent.teaching import (
     continue_exercise,
@@ -366,6 +366,11 @@ Recent conversation:
     personalization["levers"] += plan_levers
     personalization["plan_changed"] = bool(plan_levers)
 
+    # The style block the reply gets (agent/prompts.STYLE_INSTRUCTIONS).
+    style = turn_style(answer_plan, teaching_state, student_profile)
+    if style:
+        personalization["levers"].append(f"style_note_{style[0]}")
+
     # What the profile knows about THIS topic, for the generator's turn
     # reminder (agent/profile_notes.py).
     profile_notes, note_levers = select_profile_notes(
@@ -374,8 +379,12 @@ Recent conversation:
     personalization["levers"] += note_levers
 
     # Remembered for the next turn, whose reply then checks the attempt.
+    # An "exercises" student gets a task in every styled reply.
     teaching_state = teaching_state.model_copy(
-        update={"exercise_pending": answer_plan.strategy == "exercise_first"}
+        update={
+            "exercise_pending": answer_plan.strategy == "exercise_first"
+            or (style is not None and style[0] == "exercises")
+        }
     )
 
     result = {
@@ -629,7 +638,7 @@ def generate_answer(state: TutorState, config: TutorConfig, model, review_model=
     teaching_instructions = resolve_teaching_instructions(
         teaching_state,
         answer_plan.strategy,
-        example_first=leads_with_example(answer_plan, teaching_state, student_profile),
+        style=turn_style(answer_plan, teaching_state, student_profile),
         course_review=is_course_review(learning_state),
         course_outline=config.course_outline,
         reviewing_attempt=teaching_state.reviewing_attempt,
@@ -725,10 +734,9 @@ NO_PROFILE_TEXT = "(No profile yet - this is one of the first sessions with this
 
 
 _STYLE_PHRASING = {
-    "concise": "Tends to prefer a concise answer.",
-    "detailed": "Tends to prefer a thorough, detailed explanation.",
-    "example_first": "Grasps ideas better from a concrete example before the theory.",
-    "step_by_step": "Tends to prefer reasoning laid out step by step.",
+    "step_by_step": "Learns best when understanding is built one small step at a time.",
+    "examples": "Grasps ideas better from a concrete example before the theory.",
+    "exercises": "Learns best by being asked to explain or work something out.",
 }
 
 
@@ -764,10 +772,15 @@ def render_student_profile(profile: StudentProfile) -> str:
     return " ".join(parts)
 
 
+# Styles whose first question on a topic replaces the "introduce" stage's
+# name cue (prompts.INTRODUCE_STYLED); step_by_step keeps it.
+_CUE_STYLES = {"examples", "exercises"}
+
+
 def resolve_teaching_instructions(
     teaching_state: TeachingState,
     strategy: str,
-    example_first: bool = False,
+    style: tuple[str, str] | None = None,
     course_review: bool = False,
     course_outline: list[str] | None = None,
     reviewing_attempt: bool = False,
@@ -782,8 +795,8 @@ def resolve_teaching_instructions(
         change what kind of reply this is), unless we're already in direct
         mode;
       - step_by_step just appends a formatting note.
-    `example_first` (the student's profile, see agent/plan_profile.py)
-    appends a note to open with the example.
+    `style` - (explanation style, "guiding" / "explaining"), see
+    agent/plan_profile.turn_style - appends that style's block.
 
     A course-wide review (agent/teaching.is_course_review) is a study guide
     over the course outline instead - it is always direct (exam_prep).
@@ -796,14 +809,16 @@ def resolve_teaching_instructions(
         base = prompts.DIRECT_MODE_INSTRUCTIONS
     elif strategy in prompts.STRATEGY_OVERRIDE_INSTRUCTIONS:
         base = prompts.STRATEGY_OVERRIDE_INSTRUCTIONS[strategy]
+    elif teaching_state.stage == "introduce" and style and style[0] in _CUE_STYLES:
+        base = prompts.INTRODUCE_STYLED
     else:
         base = prompts.TEACHING_STAGE_INSTRUCTIONS[teaching_state.stage]
 
     if strategy == "step_by_step":
         base = f"{base}\n\n{prompts.STRATEGY_STEP_NOTE}"
 
-    if example_first:
-        base = f"{base}\n\n{prompts.EXAMPLE_FIRST_NOTE}"
+    if style:
+        base = f"{base}\n\n{prompts.STYLE_INSTRUCTIONS[style[0]][style[1]]}"
 
     # First, so it frames whatever the stage asks for next.
     if reviewing_attempt:

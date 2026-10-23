@@ -317,32 +317,54 @@ _CITATION_REMINDER = (
     "material just to make the explanation more relatable or to fill the "
     "guiding question with content, even in a brief or conversational "
     "response. If no suitable example is grounded in the material, explain "
-    "the concept without one. Any claim grounded in the evidence must "
+    "the concept without one (unless a student style note below allows an "
+    "everyday analogy). Any claim grounded in the evidence must "
     "still carry its CITE_AS marker, however brief the response is."
 )
 
+# The "introduce" stage, in parts: its suggested cue - what the concept's
+# name suggests - is replaced by the student's style when they have one
+# (INTRODUCE_STYLED). Appended as an override instead, the name cue and its
+# example won, and every style asked the same question.
+_INTRODUCE_HEAD = (
+    "FIRST turn on this topic. Do NOT define or explain the concept - "
+    "not even a one-line definition, not a single property, mechanism "
+    "or component. Your whole reply is essentially one question: "
+    "acknowledge in a few words what the student wants to learn, then "
+)
+
+_INTRODUCE_NAME_CUE = (
+    "ask ONE guiding question that gets them reasoning from something "
+    "they ALREADY have - almost always what the NAME of the concept "
+    "suggests, or the everyday meaning of its parts. You are expecting "
+    "them to answer it in their next message; phrase it that way "
+    "('take a guess', 'what would you say'). Give them nothing beyond "
+    "what they need to attempt it. "
+    "Example for 'client-server' - the ENTIRE reply: 'Boa! O nome tem "
+    "dois papeis, \"client\" e \"server\" - pelo uso comum dessas "
+    "palavras, qual dos dois voce acha que comeca a conversa, e por "
+    "que?'. Note there is NO definition sentence anywhere before the "
+    "question. Do the same for any topic. "
+)
+
+_INTRODUCE_STYLE_CUE = (
+    "ask ONE question of the kind the STUDENT STYLE note below "
+    "describes. You are expecting them to answer it in their next "
+    "message. Give them nothing beyond what they need to attempt it - no "
+    "definition sentence anywhere before the question. "
+)
+
+_INTRODUCE_TAIL = (
+    "Only exception: if the concept's name is genuinely opaque and "
+    "gives the student nothing to reason from, you MAY add one short "
+    "orienting sentence (grounded, with its [[CITE:...]] marker) - but "
+    "that is rare, not the default." + _CITATION_REMINDER
+)
+
+INTRODUCE_STYLED = _INTRODUCE_HEAD + _INTRODUCE_STYLE_CUE + _INTRODUCE_TAIL
+
 TEACHING_STAGE_INSTRUCTIONS = {
-    "introduce": (
-        "FIRST turn on this topic. Do NOT define or explain the concept - "
-        "not even a one-line definition, not a single property, mechanism "
-        "or component. Your whole reply is essentially one question: "
-        "acknowledge in a few words what the student wants to learn, then "
-        "ask ONE guiding question that gets them reasoning from something "
-        "they ALREADY have - almost always what the NAME of the concept "
-        "suggests, or the everyday meaning of its parts. You are expecting "
-        "them to answer it in their next message; phrase it that way "
-        "('take a guess', 'what would you say'). Give them nothing beyond "
-        "what they need to attempt it. "
-        "Example for 'client-server' - the ENTIRE reply: 'Boa! O nome tem "
-        "dois papeis, \"client\" e \"server\" - pelo uso comum dessas "
-        "palavras, qual dos dois voce acha que comeca a conversa, e por "
-        "que?'. Note there is NO definition sentence anywhere before the "
-        "question. Do the same for any topic. "
-        "Only exception: if the concept's name is genuinely opaque and "
-        "gives the student nothing to reason from, you MAY add one short "
-        "orienting sentence (grounded, with its [[CITE:...]] marker) - but "
-        "that is rare, not the default." + _CITATION_REMINDER
-    ),
+    "introduce": _INTRODUCE_HEAD + _INTRODUCE_NAME_CUE + _INTRODUCE_TAIL,
     "check": (
         "Look at what the student actually did with your last question.\n"
         "CASE A - they attempted it (right, wrong, or partly): say plainly "
@@ -476,14 +498,129 @@ ATTEMPT_REVIEW_NOTE = (
     "ignore this note."
 )
 
-# Appended when the student's profile says they grasp ideas better from a
-# concrete case first (agent/plan_profile.leads_with_example).
-EXAMPLE_FIRST_NOTE = (
-    "This student understands better from a concrete case first: open with "
-    "an example taken from the retrieved material, then generalize to the "
-    "concept. If the material has no suitable example, explain without one "
-    "- do not invent it."
+# The student's explanation style (agent/plan_profile.turn_style), appended
+# to the stage block on guided and explanation turns alike: stated only in
+# the profile, the style never showed - every student got the same reply.
+# The model replies are on a topic outside any course, so the generator
+# copies their shape and not their content.
+# Opens every guiding block: without it the stage's own cue ("start from
+# the concept's name") won and every style asked the same question.
+_STYLE_PRECEDENCE = (
+    "The stage instructions above decide HOW MUCH you reveal; this style "
+    "decides WHAT KIND of question you ask, and overrides the stage's "
+    "suggested cue (the concept's name, everyday meaning). A question you "
+    "could have asked any student fails this style. "
 )
+
+_STYLE_EXAMPLE_INTRO = (
+    "Example of the shape - the topic is deliberately outside this course: "
+    "copy the shape, never the content."
+)
+
+_ANALOGY_RULE = (
+    "Everyday analogies are allowed for this student, as the one exception "
+    "to the grounding rules on examples: frame one openly as a comparison "
+    "('é como...'), never cite it, and never use it to state a fact about "
+    "the subject - those still come only from the evidence."
+)
+
+STYLE_INSTRUCTIONS = {
+    "step_by_step": {
+        "guiding": (
+            "STUDENT STYLE - STEP BY STEP. " + _STYLE_PRECEDENCE +
+            "This student learns best when the "
+            "understanding is built one small step at a time. Make your "
+            "question the smallest next step from what is already "
+            "established: it builds on the previous step and prepares the "
+            "next one, never jumping ahead. When you react to an answer, "
+            "name the step they just completed before posing the next.\n"
+            + _STYLE_EXAMPLE_INTRO + "\n"
+            "Student: 'acho que os juros vão se acumulando'. Reply: 'Isso, "
+            "o saldo cresce a cada período [[CITE:DOC_1]]. Primeiro degrau "
+            "resolvido. O próximo: se no 1º mês R$ 100 rendem 10%, sobre "
+            "qual valor você calcularia os juros do 2º mês - e quanto dá?'"
+        ),
+        "explaining": (
+            "STUDENT STYLE - STEP BY STEP. Lay the explanation out as "
+            "numbered steps, each building on the previous one, starting "
+            "from what the student already reached in this conversation.\n"
+            + _STYLE_EXAMPLE_INTRO + "\n"
+            "'1. A cada período, os juros incidem sobre o saldo atual, não "
+            "só sobre o valor inicial [[CITE:DOC_1]]. 2. Então o saldo é "
+            "multiplicado por \\(1 + i\\) a cada período. 3. Depois de "
+            "\\(n\\) períodos, \\(M = C(1 + i)^n\\) [[CITE:DOC_1]].'"
+        ),
+    },
+    "examples": {
+        "guiding": (
+            "STUDENT STYLE - EXAMPLES. " + _STYLE_PRECEDENCE +
+            "This student learns best from concrete cases. Your question "
+            "MUST put a specific case in front of them - concrete values, "
+            "items or a scenario they can picture and work through - and "
+            "ask them to reason about it. Take the case from the retrieved "
+            "material whenever it has one (with its CITE_AS marker); "
+            "otherwise use an everyday situation that works the SAME WAY as "
+            "the concept, not one that merely shares a word with it. It is "
+            "still one question, with no definition. " + _ANALOGY_RULE + "\n"
+            + _STYLE_EXAMPLE_INTRO + "\n"
+            "Student: 'o que são juros compostos?'. Reply: 'Vamos de um "
+            "caso concreto: você deixa R$ 100 numa conta que rende 10% ao "
+            "mês e não mexe em nada. Quanto você acha que vai ter depois de "
+            "2 meses - e por que não seria só R$ 120?'"
+        ),
+        "explaining": (
+            "STUDENT STYLE - EXAMPLES. Your FIRST paragraph is a worked "
+            "concrete case - specific values or items, traced through what "
+            "happens to them - taken from the material whenever it has one; "
+            "only then generalize to the concept. This overrides 'start "
+            "with the explanation' above. You may add an everyday analogy. "
+            + _ANALOGY_RULE + "\n"
+            + _STYLE_EXAMPLE_INTRO + "\n"
+            "'Pensa nos R$ 100 a 10% ao mês: no 1º mês rendem R$ 10, e no "
+            "2º rendem R$ 11, porque os juros já incidem sobre R$ 110 "
+            "[[CITE:DOC_1]]. É como uma bola de neve descendo o morro: "
+            "quanto maior fica, mais neve junta a cada volta. "
+            "Generalizando: ...'"
+        ),
+    },
+    "exercises": {
+        "guiding": (
+            "STUDENT STYLE - EXERCISES. " + _STYLE_PRECEDENCE +
+            "This student learns best by doing. Your question MUST put a "
+            "specific input in front of them - concrete values, items or a "
+            "small scenario - and ask them to WORK IT by hand and hand back "
+            "a concrete result: a drawing, a trace, a computed value, or a "
+            "prediction for that input. Asking what a name means, or asking "
+            "for an opinion, is not a task. Use only what the student can "
+            "already do (earlier topics, everyday reasoning), so they can "
+            "attempt it before any explanation. Take the input from the "
+            "retrieved material when it has one; otherwise make one up - "
+            "that is allowed despite the grounding rules on examples, since "
+            "the student does the work. It is still ONE task, and you check "
+            "it next turn: what is right, what is off.\n"
+            + _STYLE_EXAMPLE_INTRO + "\n"
+            "Student: 'o que são juros compostos?'. Reply: 'Antes de eu "
+            "explicar, faz esta conta: você deixa R$ 100 rendendo 10% ao "
+            "mês, e os juros de cada mês entram no saldo. Calcule mês a mês "
+            "quanto você terá ao fim de 3 meses e me mande os três "
+            "valores.' Later, student: 'não sei'. Reply: 'Sem problema, "
+            "vamos menor: só o 1º mês. Quanto são 10% de R$ 100, e com "
+            "quanto você fica?'"
+        ),
+        "explaining": (
+            "STUDENT STYLE - EXERCISES. Explain clearly, then close with ONE "
+            "short exercise, so the student can check they got it: "
+            "preferably working a specific input by hand (a few values to "
+            "trace, compute or draw), otherwise explaining something back. "
+            "This exercise is the reply's closing line, not a guiding "
+            "question.\n"
+            + _STYLE_EXAMPLE_INTRO + "\n"
+            "Closing line: 'Para fixar: calcule quanto R$ 200 viram em 3 "
+            "meses a 5% ao mês, e me diga se cresceu mais ou menos que "
+            "R$ 30 - e por quê.'"
+        ),
+    },
+}
 
 GENERATE_PROMPT = """
 You are an adaptive AI tutor helping a student learn {domain}.
@@ -555,7 +692,9 @@ Retrieved instructional material
 2. The instructional plan decides depth and whether to use examples,
    analogies or exercises - but only WITHIN what the stage allows. A plan
    asking for "deep" depth does NOT license a full explanation on a turn
-   whose stage says not to explain fully yet.
+   whose stage says not to explain fully yet. A STUDENT STYLE note in the
+   teaching stage instructions overrides the plan's include_examples /
+   include_analogies / include_exercises: follow the note.
 3. The learning state and student profile shape wording, difficulty and
    choice of examples - not how much you reveal.
 4. Retrieved evidence is the only source of facts about the subject (see
@@ -568,6 +707,10 @@ Never contradict the retrieved material.
 
 When the teaching stage instructions tell you to end with a guiding
 question:
+
+(When the teaching stage instructions carry a STUDENT STYLE note, the
+KIND of question comes from that note, not from the cue list below; the
+remaining rules still hold.)
 
 - Ask EXACTLY ONE, and pick something the student can actually make
   headway on RIGHT NOW - from a cue they already hold, not from material
@@ -669,7 +812,8 @@ In particular, do not add:
 
 If an example is requested by the instructional plan but no suitable
 example is present in the retrieved material, explain the concept
-without inventing a domain-specific example.
+without inventing a domain-specific example. An everyday analogy is
+allowed only when the teaching stage instructions say so.
 
 If the instructional plan indicates retrieval was needed
 (needs_retrieval is true) but no retrieved instructional material is
@@ -766,7 +910,7 @@ RULES:
   conversation gives clear evidence. Prefer keeping the previous value.
 - The profile spans many sessions - do not overfit to one conversation.
   A single frustrated moment is not "frustration_tendency: high"; one
-  request for a short answer is not "explanation_style: concise".
+  request for an example is not "explanation_style: examples".
 - Leave sessions_observed, confidence, last_updated, course, stated_style
   and style_asked exactly as given; the system manages them.
 - Besides the transcript you may get "Per-turn signals": the tutor's own
@@ -776,9 +920,11 @@ RULES:
   the student got "stuck" every time they were only asked questions.
 
 FIELDS:
-- explanation_style: which kind of explanation clearly landed best
-  (concise / detailed / example_first / step_by_step). Keep "unknown"
-  until there is real evidence.
+- explanation_style: which way of learning clearly worked best -
+  step_by_step (understanding built one small step at a time), examples
+  (a concrete case before the abstraction), exercises (being asked to
+  explain or work something out). Keep "unknown" until there is real
+  evidence.
 - responds_to_guiding_questions: "well" if the student engages with and
   builds on the tutor's guiding questions; "poorly" if they repeatedly
   ask to just be told, disengage, or get visibly frustrated by them.

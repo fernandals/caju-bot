@@ -10,10 +10,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.familiarity import core_words, topic_familiarity, topics_match
 from agent.nodes import generate_answer, resolve_teaching_instructions
-from agent.plan_profile import apply_profile_to_plan, leads_with_example
+from agent.plan_profile import apply_profile_to_plan, turn_style
 from agent.profile_notes import select_profile_notes
 from agent.profiler import _confidence_for, profile_student, worth_profiling
-from agent.prompts import EXAMPLE_FIRST_NOTE
+from agent.prompts import INTRODUCE_STYLED, STYLE_INSTRUCTIONS, TEACHING_STAGE_INSTRUCTIONS
 from agent.state import AnswerPlan, LearningState, StudentProfile, TeachingState, TutorConfig
 from agent.teaching import (
     PROFILE_CONFIDENCE_FLOOR,
@@ -28,6 +28,7 @@ from utils.student_profile import scope_to_course
 SUBJECT = "Software Architecture"
 CONFIDENT = dict(confidence=0.8)
 DEEPEN, CHECK = TeachingState(stage="deepen"), TeachingState(stage="check")
+INTRODUCE, WRAP_UP = TeachingState(stage="introduce"), TeachingState(stage="wrap_up")
 LS = LearningState(topic="t")
 
 
@@ -76,10 +77,8 @@ def test_topic_familiarity():
     [
         (StudentProfile(**CONFIDENT), "shaky", {}, "medium", {"strategy": "step_by_step"}, ["shaky_topic_steps"]),
         (StudentProfile(explanation_style="step_by_step", **CONFIDENT), "new", {}, "medium", {"strategy": "step_by_step"}, ["style_steps"]),
-        (StudentProfile(explanation_style="example_first", **CONFIDENT), "new", {}, "medium", {"include_examples": True}, ["style_examples"]),
-        (StudentProfile(explanation_style="concise", **CONFIDENT), "new", {"response_depth": "deep"}, "medium", {"response_depth": "medium"}, ["style_depth"]),
-        (StudentProfile(explanation_style="detailed", **CONFIDENT), "new", {"response_depth": "light"}, "medium", {"response_depth": "medium"}, ["style_depth"]),
-        (StudentProfile(explanation_style="detailed", **CONFIDENT), "new", {}, "low", {"response_depth": "deep"}, ["style_depth"]),
+        (StudentProfile(explanation_style="examples", **CONFIDENT), "new", {}, "medium", {"include_examples": True}, ["style_examples"]),
+        (StudentProfile(explanation_style="exercises", **CONFIDENT), "new", {}, "medium", {"include_exercises": True}, ["style_exercises"]),
         # The student's own answer to the style question applies right away.
         (StudentProfile(stated_style="step_by_step"), "new", {}, "medium", {"strategy": "step_by_step"}, ["style_steps", "stated_style"]),
     ],
@@ -105,13 +104,38 @@ def test_plan_rules_leave_alone_what_they_should():
     assert direct.strategy == "step_by_step" and levers == ["style_steps"]
 
 
-def test_example_first_reaches_generation():
-    profile = StudentProfile(explanation_style="example_first", **CONFIDENT)
-    adjusted, _ = apply_profile_to_plan(plan(), DEEPEN, LS, profile)
+@pytest.mark.parametrize("style", ["step_by_step", "examples", "exercises"])
+def test_style_shapes_every_teaching_turn(style):
+    profile = StudentProfile(stated_style=style)
 
-    assert leads_with_example(adjusted, DEEPEN, profile)
-    assert not leads_with_example(adjusted, CHECK, profile)
-    assert EXAMPLE_FIRST_NOTE in resolve_teaching_instructions(DEEPEN, adjusted.strategy, example_first=True)
+    # Guided turns get the style too - not only the explanation.
+    assert turn_style(plan(), INTRODUCE, profile) == (style, "guiding")
+    assert turn_style(plan(), CHECK, profile) == (style, "guiding")
+    assert turn_style(plan(), DEEPEN, profile) == (style, "explaining")
+    assert turn_style(plan(strategy="direct_answer"), TeachingState(mode="direct"), profile) == (style, "explaining")
+
+    block = STYLE_INSTRUCTIONS[style]["guiding"]
+    assert block in resolve_teaching_instructions(CHECK, "guided_teaching", style=(style, "guiding"))
+
+
+def test_a_style_replaces_the_first_question_cue():
+    # "examples" / "exercises" ask their own kind of first question instead
+    # of the stage's "what does the name suggest?"; step_by_step keeps it.
+    for style in ("examples", "exercises"):
+        text = resolve_teaching_instructions(INTRODUCE, "guided_teaching", style=(style, "guiding"))
+        assert text.startswith(INTRODUCE_STYLED) and "client-server" not in text
+
+    stepwise = resolve_teaching_instructions(INTRODUCE, "guided_teaching", style=("step_by_step", "guiding"))
+    assert stepwise.startswith(TEACHING_STAGE_INSTRUCTIONS["introduce"])
+
+
+def test_no_style_block_where_it_does_not_belong():
+    examples = StudentProfile(stated_style="examples")
+
+    assert turn_style(plan(), CHECK, StudentProfile()) is None  # unknown / the "off" arm
+    assert turn_style(plan(strategy="exercise_first"), CHECK, examples) is None  # student chose it
+    assert turn_style(plan(), WRAP_UP, examples) is None
+    assert turn_style(plan(), TeachingState(stage="refer"), examples) is None
 
 
 # ---------------- stated vs observed style ----------------
@@ -120,15 +144,15 @@ def test_example_first_reaches_generation():
 def test_style_question_only_until_answered_or_observed():
     assert should_ask_style(StudentProfile())
     assert not should_ask_style(StudentProfile(style_asked=True))
-    assert not should_ask_style(StudentProfile(stated_style="concise"))
+    assert not should_ask_style(StudentProfile(stated_style="exercises"))
     assert not should_ask_style(StudentProfile(sessions_observed=1))
 
 
 def test_stated_style_until_a_confident_observation():
-    stated = StudentProfile(stated_style="example_first")
-    assert effective_style(stated) == ("example_first", "stated")
-    assert effective_style(stated.model_copy(update={"explanation_style": "concise", "confidence": 0.6})) == ("concise", "observed")
-    assert effective_style(stated.model_copy(update={"explanation_style": "concise", "confidence": 0.2})) == ("example_first", "stated")
+    stated = StudentProfile(stated_style="examples")
+    assert effective_style(stated) == ("examples", "stated")
+    assert effective_style(stated.model_copy(update={"explanation_style": "exercises", "confidence": 0.6})) == ("exercises", "observed")
+    assert effective_style(stated.model_copy(update={"explanation_style": "exercises", "confidence": 0.2})) == ("examples", "stated")
     assert effective_style(StudentProfile()) == ("unknown", None)
 
 
@@ -198,14 +222,14 @@ def test_profiler_cannot_change_system_fields():
 
         def invoke(self, prompt):
             self.prompt = prompt
-            return StudentProfile(course="other", stated_style="detailed", style_asked=False)
+            return StudentProfile(course="other", stated_style="exercises", style_asked=False)
 
     model = Model()
-    previous = StudentProfile(course="X", stated_style="concise", style_asked=True)
+    previous = StudentProfile(course="X", stated_style="examples", style_asked=True)
 
     updated = profile_student(previous, "Student: oi", model=model, trajectory="turn 1: stage=check")
 
-    assert (updated.course, updated.stated_style, updated.style_asked) == ("X", "concise", True)
+    assert (updated.course, updated.stated_style, updated.style_asked) == ("X", "examples", True)
     assert "Per-turn signals:\nturn 1: stage=check" in model.prompt
 
 
@@ -213,7 +237,7 @@ def test_profiler_cannot_change_system_fields():
 
 
 def test_course_switch_keeps_the_learner_and_drops_the_course():
-    learner = dict(explanation_style="example_first", frustration_tendency="high", stated_style="concise", confidence=0.9)
+    learner = dict(explanation_style="examples", frustration_tendency="high", stated_style="exercises", confidence=0.9)
     course = dict(solid_topics=["client-server"], shaky_topics=["pipe-filter"], tutor_note="n", misconceptions=["m"], what_clicked=["w"])
     profile = StudentProfile(course="A", prior_knowledge=["Python"], **learner, **course)
 

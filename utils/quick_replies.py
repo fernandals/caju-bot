@@ -142,10 +142,9 @@ STYLE_SKIP = "skip"
 
 STYLE_CHOICES = [
     # (label, stated_style value, lucide icon)
-    ("Exemplo primeiro", "example_first", "shapes"),
     ("Passo a passo", "step_by_step", "list-ordered"),
-    ("Direto ao ponto", "concise", "zap"),
-    ("Explicação completa", "detailed", "book-open"),
+    ("Com exemplos", "examples", "shapes"),
+    ("Com exercícios", "exercises", "pencil"),
     ("Pular", STYLE_SKIP, "skip-forward"),
 ]
 

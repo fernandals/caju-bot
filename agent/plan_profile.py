@@ -7,10 +7,12 @@ So the profile's explanation_style and topic familiarity are applied
 here, in code, after the planner has run - testable, and logged per turn
 for the personalization study.
 
-Only on explanation turns (direct mode, or the "deepen" stage): the guided
-turns are one question with no examples by design, and the profile must
-not turn them into a lecture. Strategies the student chose by intent
-(exercise_first / hint_only) are left alone.
+The plan is only adjusted on explanation turns (direct mode, or the
+"deepen" stage): the guided turns stay one question, and the profile must
+not turn them into a lecture. The explanation style still shapes them -
+turn_style picks the style block (agent/prompts.STYLE_INSTRUCTIONS) for
+guided and explanation turns alike. Strategies the student chose by
+intent (exercise_first / hint_only) are left alone.
 """
 
 from agent.familiarity import Familiarity
@@ -39,9 +41,8 @@ def apply_profile_to_plan(
     (adjusted plan, levers that changed it). Levers:
     - shaky_topic_steps: topic struggled with before -> numbered steps
     - style_steps: step_by_step student -> numbered steps
-    - style_examples: example_first student -> include an example
-    - style_depth: concise caps depth at medium; detailed raises it to at
-      least medium (deep when comprehension is low)
+    - style_examples: examples student -> include an example
+    - style_exercises: exercises student -> include an exercise
     - stated_style: added next to a style_* lever when the style came from
       the student's own answer to the first-conversation question, not
       from the profiler (agent/teaching.effective_style)
@@ -61,21 +62,13 @@ def apply_profile_to_plan(
             updates["strategy"] = "step_by_step"
             levers.append("style_steps")
 
-    if style == "example_first" and not plan.include_examples:
+    if style == "examples" and not plan.include_examples:
         updates["include_examples"] = True
         levers.append("style_examples")
 
-    depth = plan.response_depth
-    if style == "concise" and depth == "deep":
-        depth = "medium"
-    elif style == "detailed":
-        depth = "deep" if learning_state.comprehension_level == "low" else (
-            "medium" if depth == "light" else depth
-        )
-
-    if depth != plan.response_depth:
-        updates["response_depth"] = depth
-        levers.append("style_depth")
+    if style == "exercises" and not plan.include_exercises:
+        updates["include_exercises"] = True
+        levers.append("style_exercises")
 
     if not updates:
         return plan, []
@@ -86,12 +79,28 @@ def apply_profile_to_plan(
     return plan.model_copy(update=updates), levers
 
 
-def leads_with_example(
+# Guided stages whose reply is a guiding question. "refer" (point to the
+# material) and "wrap_up" (recap) are short nudges, left as is.
+_GUIDING_STAGES = {"introduce", "check"}
+
+
+def turn_style(
     plan: AnswerPlan, teaching_state: TeachingState, profile: StudentProfile | None
-) -> bool:
-    """Whether the generator should open with the example (example_first)."""
-    return (
-        is_explanation_turn(teaching_state)
-        and plan.include_examples
-        and _style(profile) == "example_first"
-    )
+) -> tuple[str, str] | None:
+    """
+    (style, "guiding" / "explaining") - which style block this turn's reply
+    gets (agent/prompts.STYLE_INSTRUCTIONS) - or None: no known style, a
+    strategy the student chose, or a refer / wrap_up turn.
+    """
+    style = _style(profile)
+
+    if style == "unknown" or plan.strategy in _STUDENT_DRIVEN_STRATEGIES:
+        return None
+
+    if is_explanation_turn(teaching_state):
+        return style, "explaining"
+
+    if teaching_state.stage in _GUIDING_STAGES:
+        return style, "guiding"
+
+    return None
