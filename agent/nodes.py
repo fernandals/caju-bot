@@ -692,6 +692,8 @@ EVIDENCE
     if profile_notes:
         reminder += "\n\nAbout this student:\n" + "\n".join(f"- {n}" for n in profile_notes)
 
+    reminder += "\n\n" + prompts.MATH_FORMAT_REMINDER
+
     turn_reminder = SystemMessage(content=reminder)
 
     # Checking an exercise attempt takes a stronger model (agent/models.py).

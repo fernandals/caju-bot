@@ -722,6 +722,17 @@ such:
   unless the teaching stage instructions call for a full explanation.
 """
 
+# Repeated in the turn reminder (agent/nodes.generate_answer): stated only
+# in GENERATE_PROMPT, the rule lost to the evidence, which carries the
+# slides' math as plain text ("O(n log n)", "n - 1") that the model copied.
+MATH_FORMAT_REMINDER = (
+    "Formatting: write every piece of math in LaTeX between \\( \\) - "
+    "complexities, variables, expressions, recurrences - including math "
+    "copied from the evidence, where it appears as plain text: O(n log n) "
+    "becomes \\(O(n \\log n)\\), n - 1 becomes \\(n - 1\\), H[1] becomes "
+    "\\(H[1]\\). Never leave math as plain text, and never use $."
+)
+
 # -------------------------------------------------------------------------------------------------------------- #
 
 SYSTEM_PROMPT = """
