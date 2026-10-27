@@ -40,7 +40,7 @@ Pergunta do aluno:
 @functools.lru_cache(maxsize=1)
 def _title_model() -> ChatOpenAI:
     return ChatOpenAI(
-        model=os.getenv("TITLE_MODEL", "gpt-4.1-nano"),
+        model=os.getenv("TITLE_MODEL", "gpt-4.1-mini"),
         temperature=0,
         timeout=float(os.getenv("MODEL_TIMEOUT", 30)),
         max_retries=int(os.getenv("MODEL_MAX_RETRIES", 2)),

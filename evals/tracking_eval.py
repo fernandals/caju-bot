@@ -7,7 +7,7 @@ they produce against what agent/teaching.py needs to see. Every case is
 run several times, since the labels are sampled.
 
     python -m evals.tracking_eval                 # default models
-    TRACKING_MODEL=gpt-4.1-nano python -m evals.tracking_eval
+    TRACKING_MODEL=gpt-4o-mini python -m evals.tracking_eval
     RUNS=5 ONLY=progress python -m evals.tracking_eval
 
 Costs a few cents per run.

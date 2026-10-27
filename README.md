@@ -165,7 +165,7 @@ pytest
 | `REVIEW_MODEL` | não | `gpt-4.1-mini` | avalia a resposta do aluno a uma pergunta contra o material (decide se o tópico está concluído) e escreve a resposta que confere a tentativa num exercício |
 | `PROFILER_MODEL` | não | `gpt-4.1-mini` | modelo do profiler de aluno (roda 1× por sessão) |
 | `PERSONALIZATION_MODE` | não | `alternate` | estudo de personalização: `alternate` (conversas alternam com/sem perfil por aluno), `always` ou `off` — ver DEPLOY.md |
-| `TITLE_MODEL` | não | `gpt-4.1-nano` | gera o título curto da conversa na barra lateral (1× por conversa) |
+| `TITLE_MODEL` | não | `gpt-4.1-mini` | gera o título curto da conversa na barra lateral (1× por conversa) |
 | `MODEL_TEMPERATURE` | não | `0` | temperatura dos modelos acima |
 | `MODEL_TIMEOUT` | não | `30` | timeout (s) por chamada de LLM |
 | `MODEL_MAX_RETRIES` | não | `2` | tentativas por chamada de LLM |
