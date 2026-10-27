@@ -1,3 +1,5 @@
+import re
+
 from agent.familiarity import Familiarity
 from agent.state import LearningState, StudentProfile, TeachingState
 
@@ -20,6 +22,22 @@ PROFILE_CONFIDENCE_FLOOR = 0.4
 # those students want to do the work themselves, so they stay guided and
 # the planning node picks an exercise_first / hint_only strategy.
 DIRECT_INTENTS = {"exam_prep"}
+
+
+# "me passa um exercício", "quero mais exercícios", "quero praticar": the
+# student asks to practise. Decided here rather than left to the planner,
+# which answered the quick-reply button's own message with guided teaching
+# - and an exercise not marked as one is not reviewed as an attempt.
+_EXERCISE_REQUEST_RE = re.compile(
+    r"\b(?:passa|passe|passar|d[áa]|manda|mande|quero|queria|gostaria\s+de|prefiro|vamos|bora|"
+    r"faz|fa[çc]a|cria|crie|prop[õo]e|proponha|tem|teria)\b[\w\s,]{0,40}?\b(?:exerc[íi]cios?|praticar)\b",
+    re.IGNORECASE,
+)
+
+
+def is_exercise_request(text: str | None) -> bool:
+    """The student's message asks for an exercise / to practise."""
+    return bool(text) and bool(_EXERCISE_REQUEST_RE.search(text))
 
 
 def is_course_review(learning_state: LearningState | None) -> bool:
@@ -147,6 +165,10 @@ def continue_exercise(previous: TeachingState, proposed: TeachingState) -> Teach
     # already at "check" and keeps the arc's own may_close.)
     if proposed.mode == "guided" and proposed.stage in ("introduce", "concluded") and same_arc:
         reviewing = reviewing.model_copy(update={"stage": "check", "turns_in_stage": 0, "may_close": True})
+
+    # The same for an exercise asked for mid-arc.
+    if previous.exercise_requested and reviewing.mode == "guided" and reviewing.stage == "check":
+        reviewing = reviewing.model_copy(update={"may_close": True})
 
     return reviewing
 

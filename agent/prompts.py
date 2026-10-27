@@ -500,10 +500,10 @@ STRATEGY_STEP_NOTE = (
 # decide closing inside the long generation prompt, the generator never
 # did either.
 JUDGE_PROMPT = """
-You judge a student's reply in a tutoring conversation, against the
-course material below. The tutor asked something; did the student's
-reply answer it correctly?
+You judge a student's reply in a tutoring conversation about {topic},
+against the course material below.
 
+1. verdict - did the reply answer what the tutor last asked, correctly?
 - correct: answers what was asked, and is right by the material. Judge a
   beginner fairly: their own words count, and details that were not asked
   for are not required.
@@ -512,11 +512,16 @@ reply answer it correctly?
 - none: not an attempt at what was asked - a question of their own, "não
   sei", small talk, a request.
 
-Tutor's last message:
-{tutor_message}
+2. shows_core_idea - a stricter, separate question: taken together, do
+the student's replies in this conversation show they grasp the CENTRAL
+idea of {topic} - what it is and how or why it is used, or applying it
+correctly to a case? Answering one small step correctly (naming which
+values to use, decoding what the name suggests, a one-word answer) is NOT
+enough, nor is a reply that hedges ("não sei exatamente, mas..."). If the
+student said "não sei" to the last real step, it is false.
 
-Student's reply:
-{student_reply}
+Recent conversation:
+{dialogue}
 
 Course material:
 {context}

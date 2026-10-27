@@ -277,6 +277,13 @@ class TeachingState(BaseModel):
         description="This arc already gave the full explanation.",
     )
 
+    # The pending exercise was one the student asked for (strategy
+    # exercise_first), not a task inside the guided arc ("exercises" style).
+    exercise_requested: bool = Field(
+        default=False,
+        description="The last reply gave an exercise the student asked for.",
+    )
+
     # Per turn, from agent/teaching.advance_teaching_state: whether a right
     # reply this turn may close the topic (agent/nodes.generate_answer).
     may_close: bool = Field(
@@ -371,6 +378,14 @@ class ReplyVerdict(BaseModel):
             "'partial' = partly right; 'wrong' = wrong; "
             "'none' = not an attempt (a question, 'não sei', small talk)."
         )
+    )
+    shows_core_idea: bool = Field(
+        default=False,
+        description=(
+            "Whether the student's replies in this conversation, taken "
+            "together, show they grasp the central idea of the topic - not "
+            "just one small step or what its name suggests."
+        ),
     )
 
 

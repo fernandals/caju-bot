@@ -25,6 +25,7 @@ from agent.teaching import (
     close_arc,
     continue_exercise,
     is_course_review,
+    is_exercise_request,
     advance_teaching_state,
     effective_familiarity,
     personalization_trace,
@@ -39,6 +40,10 @@ from rag.models import ChunkMetadata
 # so a long session doesn't re-pay for every earlier turn on every message
 # (planning and generation already window their message slices).
 TRACKING_WINDOW = 12
+
+# Messages the judge reads (judge_reply): enough to see the student's
+# earlier replies on the topic, not just the last one.
+JUDGE_WINDOW = 8
 
 # A course-wide review retrieves per outline topic, keeping this many
 # chunks from each - so the study guide can cite every part of the course.
@@ -357,6 +362,10 @@ Recent conversation:
     # the student's wellbeing, not about skipping effort).
     teaching_state = proposed_teaching_state
 
+    # An explicit request to practise gets an exercise (teaching.is_exercise_request).
+    if is_exercise_request(latest_student_question(state["messages"])):
+        answer_plan = answer_plan.model_copy(update={"strategy": "exercise_first"})
+
     if (
         answer_plan.strategy == "direct_answer"
         and teaching_state.mode == "guided"
@@ -405,7 +414,8 @@ Recent conversation:
     teaching_state = teaching_state.model_copy(
         update={
             "exercise_pending": answer_plan.strategy == "exercise_first"
-            or (style is not None and style[0] == "exercises")
+            or (style is not None and style[0] == "exercises"),
+            "exercise_requested": answer_plan.strategy == "exercise_first",
         }
     )
 
@@ -761,7 +771,7 @@ def is_judged_turn(teaching_state: TeachingState) -> bool:
     return teaching_state.mode == "guided" and teaching_state.stage == "check"
 
 
-def judge_reply(state: TutorState, context: str, model) -> str | None:
+def judge_reply(state: TutorState, context: str, model) -> ReplyVerdict | None:
     """
     The tutor's verdict on the student's reply (prompts.JUDGE_PROMPT), on
     judged turns only; None elsewhere or if the call fails - the reply is
@@ -771,15 +781,18 @@ def judge_reply(state: TutorState, context: str, model) -> str | None:
     if teaching_state is None or not is_judged_turn(teaching_state):
         return None
 
-    dialogue = dialogue_window(state["messages"], 2)
-    if len(dialogue) < 2 or not isinstance(dialogue[0], AIMessage):
+    dialogue = dialogue_window(state["messages"], JUDGE_WINDOW)
+    if len(dialogue) < 2 or not isinstance(dialogue[-2], AIMessage):
         return None
+
+    learning_state = state.get("learning_state")
+    topic = " - ".join(t for t in (learning_state.topic, learning_state.subtopic) if t) if learning_state else ""
 
     try:
         judged = model.with_structured_output(ReplyVerdict).invoke(
             prompts.JUDGE_PROMPT.format(
-                tutor_message=dialogue[0].content,
-                student_reply=dialogue[1].content,
+                topic=topic or "the current topic",
+                dialogue=build_conversation_transcript(dialogue),
                 context=context or "(none retrieved)",
             )
         )
@@ -787,32 +800,46 @@ def judge_reply(state: TutorState, context: str, model) -> str | None:
         print(f"[ANSWER GENERATION] Could not judge the reply: {exc}")
         return None
 
-    if judged is None:
-        return None
+    if judged is not None:
+        print(f"[ANSWER GENERATION] Verdict: {judged.verdict}, core idea: {judged.shows_core_idea} - {judged.reason}")
 
-    print(f"[ANSWER GENERATION] Verdict: {judged.verdict} - {judged.reason}")
-    return judged.verdict
+    return judged
+
+
+def closes_topic(teaching_state: TeachingState, verdict: ReplyVerdict | None) -> bool:
+    """
+    A reply concludes the topic only when it is right AND, with the earlier
+    replies, shows the central idea - a right answer to one small step does
+    not - and the arc allows closing (TeachingState.may_close).
+    """
+    return (
+        verdict is not None
+        and is_judged_turn(teaching_state)
+        and teaching_state.may_close
+        and verdict.verdict == "correct"
+        and verdict.shows_core_idea
+    )
 
 
 # The tracker's label, corrected by the tutor's verdict when they disagree.
 _PROGRESS_FOR_VERDICT = {"correct": "improving", "partial": "improving", "wrong": "stable"}
 
 
-def apply_verdict(state: TutorState, verdict: str | None) -> dict:
+def apply_verdict(state: TutorState, verdict: ReplyVerdict | None) -> dict:
     """
-    State updates from the verdict on a "check" reply (judge_reply): a
-    correct reply where closing is allowed concludes the topic (teaching.close_arc)
+    State updates from the verdict on a "check" reply (judge_reply): a reply
+    that closes the topic (closes_topic) concludes it (teaching.close_arc)
     and counts as a mastered arc for the student's style; otherwise the
     tracker's learning_progress - judged without the material - yields to
-    the verdict. No verdict (other stages, or the marker missing): nothing.
+    the verdict. No verdict (other stages, or the call failed): nothing.
     """
     teaching_state = state.get("teaching_state")
     learning_state = state.get("learning_state")
 
-    if verdict in (None, "none") or teaching_state is None or not is_judged_turn(teaching_state):
+    if verdict is None or verdict.verdict == "none" or teaching_state is None or not is_judged_turn(teaching_state):
         return {}
 
-    if verdict == "correct" and teaching_state.may_close:
+    if closes_topic(teaching_state, verdict):
         updates = {
             "teaching_state": close_arc(teaching_state),
             "learning_state": learning_state.model_copy(update={"learning_progress": "mastered"}),
@@ -822,8 +849,8 @@ def apply_verdict(state: TutorState, verdict: str | None) -> dict:
             updates["style_tracker"], _ = record_arc(tracker, "mastered")
         return updates
 
-    progress = _PROGRESS_FOR_VERDICT[verdict]
-    if learning_state.learning_progress == "stuck" and verdict == "wrong":
+    progress = _PROGRESS_FOR_VERDICT[verdict.verdict]
+    if learning_state.learning_progress == "stuck" and verdict.verdict == "wrong":
         progress = "stuck"
     return {"learning_state": learning_state.model_copy(update={"learning_progress": progress})}
 
@@ -878,7 +905,7 @@ def resolve_teaching_instructions(
     course_review: bool = False,
     course_outline: list[str] | None = None,
     reviewing_attempt: bool = False,
-    verdict: str | None = None,
+    verdict: ReplyVerdict | None = None,
 ) -> str:
     """
     Picks the instruction block for generate_answer.
@@ -901,7 +928,7 @@ def resolve_teaching_instructions(
         return prompts.COURSE_REVIEW_INSTRUCTIONS.format(outline=outline)
 
     # A correct reply where closing is allowed: the topic is done.
-    if is_judged_turn(teaching_state) and verdict == "correct" and teaching_state.may_close:
+    if closes_topic(teaching_state, verdict):
         return _with_outline(prompts.CLOSE_TOPIC_INSTRUCTIONS, course_outline)
 
     if teaching_state.mode == "direct":
@@ -922,8 +949,8 @@ def resolve_teaching_instructions(
     if teaching_state.stage == "concluded":
         base = _with_outline(base, course_outline)
 
-    if is_judged_turn(teaching_state) and verdict in prompts.VERDICT_NOTES:
-        base = f"{base}\n\n{prompts.VERDICT_NOTES[verdict]}"
+    if is_judged_turn(teaching_state) and verdict is not None:
+        base = f"{base}\n\n{prompts.VERDICT_NOTES[verdict.verdict]}"
 
     # First, so it frames whatever the stage asks for next.
     if reviewing_attempt:

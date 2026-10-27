@@ -19,6 +19,7 @@ from agent.teaching import (
     advance_teaching_state,
     close_arc,
     continue_exercise,
+    is_exercise_request,
     guided_turn_cap,
     is_course_review,
 )
@@ -229,19 +230,27 @@ def test_exercise_attempt_may_close():
 # ---------------- the tutor's verdict ----------------
 
 
+def v(verdict="correct", core=True) -> ReplyVerdict:
+    return ReplyVerdict(reason="r", verdict=verdict, shows_core_idea=core)
+
+
 def test_a_correct_reply_closes_only_when_allowed():
-    closing = resolve_teaching_instructions(ts(may_close=True), "guided_teaching", course_outline=["Heap"], verdict="correct")
+    closing = resolve_teaching_instructions(ts(may_close=True), "guided_teaching", course_outline=["Heap"], verdict=v())
     assert closing.startswith(CLOSE_TOPIC_INSTRUCTIONS) and "- Heap" in closing
 
     # Right, but too early to close: confirmed, and the arc goes on.
-    early = resolve_teaching_instructions(ts(may_close=False), "guided_teaching", verdict="correct")
+    early = resolve_teaching_instructions(ts(may_close=False), "guided_teaching", verdict=v())
     assert CLOSE_TOPIC_INSTRUCTIONS not in early and VERDICT_NOTES["correct"] in early
 
-    wrong = resolve_teaching_instructions(ts(may_close=True), "guided_teaching", verdict="wrong")
+    # Right on one small step, without the central idea: the arc goes on.
+    small_step = resolve_teaching_instructions(ts(may_close=True), "guided_teaching", verdict=v(core=False))
+    assert CLOSE_TOPIC_INSTRUCTIONS not in small_step and VERDICT_NOTES["correct"] in small_step
+
+    wrong = resolve_teaching_instructions(ts(may_close=True), "guided_teaching", verdict=v("wrong"))
     assert VERDICT_NOTES["wrong"] in wrong and CLOSE_TOPIC_INSTRUCTIONS not in wrong
 
     # Only guided "check" turns are judged.
-    assert VERDICT_NOTES["correct"] not in resolve_teaching_instructions(ts("deepen", 0), "step_by_step", verdict="correct")
+    assert VERDICT_NOTES["correct"] not in resolve_teaching_instructions(ts("deepen", 0), "step_by_step", verdict=v())
 
 
 def turn_state(may_close=True, progress="mastered", stage="check"):
@@ -253,7 +262,7 @@ def turn_state(may_close=True, progress="mastered", stage="check"):
 
 
 def test_correct_reply_closes_the_topic():
-    updates = apply_verdict(turn_state(), "correct")
+    updates = apply_verdict(turn_state(), v())
 
     assert updates["teaching_state"].stage == "concluded"
     assert updates["teaching_state"].session_arcs_mastered == 1
@@ -268,11 +277,13 @@ def test_correct_reply_closes_the_topic():
     "may_close, tracker_said, verdict, progress",
     [
         # The tracker's "mastered" on a wrong answer yields to the tutor.
-        (True, "mastered", "wrong", "stable"),
-        (True, "mastered", "partial", "improving"),
+        (True, "mastered", v("wrong"), "stable"),
+        (True, "mastered", v("partial"), "improving"),
         # Right, but too early to close: progress, not mastery.
-        (False, "mastered", "correct", "improving"),
-        (True, "stuck", "wrong", "stuck"),
+        (False, "mastered", v(), "improving"),
+        # Right on a small step ("c2 e c1" after "não sei"): not mastery.
+        (True, "mastered", v(core=False), "improving"),
+        (True, "stuck", v("wrong"), "stuck"),
     ],
 )
 def test_verdict_corrects_the_tracker(may_close, tracker_said, verdict, progress):
@@ -284,8 +295,8 @@ def test_verdict_corrects_the_tracker(may_close, tracker_said, verdict, progress
 
 def test_no_verdict_changes_nothing():
     assert apply_verdict(turn_state(), None) == {}
-    assert apply_verdict(turn_state(), "none") == {}
-    assert apply_verdict(turn_state(stage="deepen"), "correct") == {}
+    assert apply_verdict(turn_state(), v("none")) == {}
+    assert apply_verdict(turn_state(stage="deepen"), v()) == {}
 
 
 class Judge:
@@ -299,24 +310,59 @@ class Judge:
         if self.fail:
             raise TimeoutError("slow")
         self.prompt = prompt
-        return ReplyVerdict(reason="r", verdict=self.verdict)
+        return v(self.verdict)
 
 
 def judged_state(stage="check", mode="guided"):
     return {
         "teaching_state": ts(stage, 1, mode=mode),
-        "messages": [AIMessage(content="Qual a altura de uma AVL?"), HumanMessage(content="O(log n)")],
+        "learning_state": ls(),
+        "messages": [
+            HumanMessage(content="o que é altura?"),
+            AIMessage(content="Qual a altura de uma AVL?"),
+            HumanMessage(content="O(log n)"),
+        ],
     }
 
 
-def test_judge_reads_the_question_the_reply_and_the_material():
+def test_judge_reads_the_conversation_the_topic_and_the_material():
     judge = Judge("partial")
-    assert judge_reply(judged_state(), "EVIDENCE - h = O(log n)", judge) == "partial"
-    assert "Qual a altura de uma AVL?" in judge.prompt and "O(log n)" in judge.prompt
-    assert "EVIDENCE - h = O(log n)" in judge.prompt
+    assert judge_reply(judged_state(), "EVIDENCE - h = O(log n)", judge).verdict == "partial"
+    # The earlier replies too - the central idea is judged across them.
+    for text in ("o que é altura?", "Qual a altura de uma AVL?", "O(log n)", "loops - for-loop", "EVIDENCE - h = O(log n)"):
+        assert text in judge.prompt
 
 
 def test_judge_only_on_guided_check_and_never_breaks_the_turn():
     assert judge_reply(judged_state("deepen"), "", Judge()) is None
     assert judge_reply(judged_state(mode="direct"), "", Judge()) is None
     assert judge_reply(judged_state(), "", Judge(fail=True)) is None
+
+
+# ---------------- asking to practise ----------------
+
+
+@pytest.mark.parametrize(
+    "text, asks",
+    [
+        ("Me passa um exercício sobre isso.", True),
+        ("Me passa um exercício para eu praticar.", True),
+        ("Quero continuar praticando com mais exercícios sobre árvores AVL", True),
+        ("tem algum exercício de heap?", True),
+        ("quero praticar", True),
+        ("Prefiro fazer um exercício prático sobre árvores AVL", True),
+        ("pode me passar um exercício?", True),
+        ("vamos fazer uns exercícios", True),
+        ("não consigo fazer o exercício", False),
+        ("não entendi o exercício", False),
+        ("o que é uma árvore AVL?", False),
+        (None, False),
+    ],
+)
+def test_exercise_request(text, asks):
+    assert is_exercise_request(text) is asks
+
+
+def test_requested_exercise_may_close_mid_arc():
+    previous = ts("check", 1, exercise_pending=True, exercise_requested=True)
+    assert continue_exercise(previous, ts("check", 2, may_close=False)).may_close
