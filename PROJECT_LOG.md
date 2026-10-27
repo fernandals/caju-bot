@@ -728,3 +728,121 @@ de forma agnóstica à disciplina, medindo cada mudança.
   turma ainda não começou, então nada a separar por enquanto; se
   mudanças desse porte acontecerem durante a coleta, registrar a data e
   analisar antes/depois separadamente.
+
+---
+
+## 📅 Data
+- **2026-10-23 a 2026-10-27** (LaTeX, estilos que funcionam de verdade, troca de estilo e compreensão completa)
+
+### 📌 Status do Projeto
+Os testes da última rodada mostraram três problemas: algumas conversas
+sem LaTeX, o estilo escolhido na 1ª conversa sem efeito nenhum, e
+nenhuma conversa chegando a "compreensão completa" (0 de 60 turnos em
+`mastered`). Cada um foi investigado com as conversas reais
+(`chainlit.db` + `metrics.db`) e com simulações: um aluno simulado
+(gpt-4.1-mini) conversando com o tutor real, medindo o estado turno a
+turno.
+
+### ✅ Mudanças
+**LaTeX**
+- Não era a UI nem a personalização (braços on/off idênticos): o modelo
+  copiava a matemática da evidência, que vem em texto puro dos slides
+  ("O(n log n)", "n - 1"), nas respostas longas (roteiro de revisão, modo
+  direto). A regra de formatação agora também vai no lembrete do fim do
+  contexto: matemática em texto puro na conversa que falhava 12/24 → 0/24.
+
+**Estilos de explicação**
+- Três estilos, que moldam todas as respostas e não só a explicação
+  final: **passo a passo** (o comportamento de antes, agora deliberado),
+  **com exemplos** (casos concretos do material ou analogias do dia a
+  dia) e **com exercícios** (pequenas tarefas com valores concretos).
+  "Direto ao ponto" e "Explicação completa" saíram: o aluno não pode
+  escolher receber a resposta pronta; o modo direto continua só para
+  prova e frustração.
+- Por que não funcionava: o estilo só valia no turno de explicação, e
+  o estágio `introduce` ("parta do nome do conceito", com o exemplo
+  client-server) vencia qualquer instrução acrescentada depois. Agora o
+  `introduce` tem duas versões: a do nome (passo a passo) e uma em que a
+  pergunta vem do estilo. Cada estilo tem respostas-modelo num tema fora
+  de qualquer disciplina (juros compostos), para o modelo copiar a forma
+  e não o conteúdo.
+- Analogias do dia a dia liberadas só no estilo com exemplos, como
+  comparação e sem citação; no estilo com exercícios, o tutor pode
+  inventar os valores da tarefa.
+
+**Troca de estilo** (`agent/style_tracking.py`)
+- Cada arco que termina (dominado ou travado) conta para o estilo em
+  uso; **3 arcos travados seguidos** mudam o estilo para o de melhor
+  histórico. Sem exploração: o tutor não testa outro estilo sem essa
+  evidência. Vale também no meio da conversa.
+- O aluno troca quando quiser em **Configurações** (cabeçalho, painel
+  nativo do Chainlit — o menu do avatar não aceita itens novos).
+- O profiler deixou de decidir o estilo (`explanation_style` removido do
+  perfil): era um julgamento do modelo sem critério verificável, e só via
+  evidência do estilo que já estava em uso. Salvo por matrícula em
+  `style_trackers`, no `student_profiles.db`.
+
+**Compreensão completa**
+- Nos dados reais, as conversas de teste eram curtas ("Não sei", botões,
+  revisão para a prova). Mas o aluno simulado que acerta tudo mostrou
+  quatro problemas no fluxo:
+  1. preparação para prova: a válvula de escape vinha antes da checagem
+     de domínio, e cada resposta certa recebia a aula inteira de novo
+     (0 arcos fechados);
+  2. depois do domínio, o tutor reabria o mesmo tópico com a pergunta de
+     iniciante sobre o nome;
+  3. a tentativa de exercício que nomeava o tópico pela primeira vez era
+     tratada como troca de assunto e o progresso zerava (código correto
+     → `stable`);
+  4. o tracking julga sem o material: marcou `mastered` numa resposta que
+     o tutor, no mesmo turno, disse estar errada.
+- Correções: prova explica uma vez por tópico e depois avalia as
+  respostas; estágio novo `concluded` (o tutor confirma, recapitula e
+  oferece o próximo assunto ou um exercício, sem reabrir); a recapitulação
+  depois de uma explicação termina com uma pergunta de checagem; o
+  tracking é avisado do exercício pendente.
+- **O domínio é decidido pelo material**: nos turnos `check`, uma
+  chamada curta (`judge_reply`, `REVIEW_MODEL`) avalia a resposta do
+  aluno contra a evidência antes de o tutor escrever. Correta e com
+  fechamento liberado (2ª resposta do arco, ou 1ª depois de uma
+  explicação ou num exercício) → o tópico fecha em código; nos outros
+  casos, o tutor recebe o veredito e o rótulo do tracking é corrigido.
+  A primeira tentativa (o próprio gerador escrever um marcador de
+  veredito) não funcionou: o gpt-4o-mini não escreveu o marcador nenhuma
+  vez.
+- Simulação depois: fecha no 3º turno no fluxo básico e no de prova, no
+  4º no de exercício; o aluno que erra sempre nunca fecha, e não recebe
+  elogio falso.
+
+**Métricas**: a coluna `studentProfile` passa a guardar o estilo em uso;
+levers novos `style_note_<estilo>`, `style_switch_<estilo>` e
+`arc_style`; o turno que fecha um tópico é gravado como
+`concluded`/`mastered`.
+
+### ⚠️ Limitações
+- O avaliador é generoso com iniciantes, como pede o prompt: no
+  exercício de inserções, o plano de resolução ("inserir uma a uma,
+  verificar alturas, rotacionar") fechou o tópico, porque a pergunta era
+  "o que fazer primeiro?". Endurecer, se preciso, no `JUDGE_PROMPT`.
+- Uma chamada a mais (~1 s, gpt-4.1-mini) nos turnos `check`; se falhar,
+  o turno segue sem fechar o tópico.
+- Exemplos e traços resolvidos pelo modelo podem ter erros (um traço de
+  heapsort errou um passo). Aceito: não há como garantir 100%.
+- O seletor de estilo aparece também nas conversas "off" do estudo; a
+  escolha é salva, mas só vale nas conversas "on".
+- A troca automática de estilo é silenciosa, e um arco dominado num tema
+  fácil zera a sequência de travados.
+- Perfis de teste com os estilos antigos caem para um perfil novo ao
+  carregar (sem migração: ainda não há alunos).
+- **Estudo**: `mastered` antes e depois de 2026-10-27 não é comparável
+  (antes vinha só do tracking, agora do veredito sobre o material).
+- Planning medido: 1,2 s de mediana; o campo `rationale` custa ~0,5 s
+  por turno sem ser usado (adiado para a revisão do fluxo).
+
+### 🔜 Próximos Passos
+- Revisão do fluxo e da latência: tirar o `rationale`, timeout menor no
+  planning, planning por regras em código, busca em paralelo com o
+  planning, streaming da resposta.
+- Decidir: esconder o seletor de estilo nas conversas "off"; avisar o
+  aluno quando o estilo mudar sozinho.
+- Continuam do log anterior: deploy no Railway e nome do app.

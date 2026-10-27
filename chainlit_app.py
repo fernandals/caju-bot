@@ -148,6 +148,8 @@ def _render_readme(topics: list[str]) -> str:
         "- Use os botões abaixo das respostas para ver os assuntos, revisar "
         "para a prova ou pedir um exercício — ao resolver, mande sua resposta "
         "que ele corrige.",
+        "- Prefere aprender com exemplos ou com exercícios? Escolha o estilo "
+        "em **Configurações**, no cabeçalho, quando quiser.",
         "- Use **Novo chat** para recomeçar do zero; as conversas anteriores "
         "continuam salvas na barra lateral.",
         "- Em computador compartilhado, saia da sua conta pelo menu do seu "

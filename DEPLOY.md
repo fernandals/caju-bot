@@ -124,8 +124,8 @@ container — there's no shared state or shared roster between them.
 
 If you rebuild the image with a different course and deploy it onto the
 same volume, students' stored profiles carry over only what describes the
-learner (preferred explanation style, how they respond to guiding
-questions, frustration tendency). The topic lists and the tutor note
+learner (explanation style and its arc record, how they respond to
+guiding questions, frustration tendency). The topic lists and the tutor note
 belong to a course: they are cleared the first time the profile is loaded
 under the new course. Conversations are tagged with their course, and the
 profiler only reads conversations from the current one. The study panel
@@ -191,7 +191,10 @@ learning profile the tutor uses to personalize itself. Unlike
 `metrics.db`, this one **is** identifiable (keyed by enrollment ID); it
 stores only slow-moving learning-style traits and a short free-text note,
 never transcripts. It's refreshed once per session by a model that reads
-the student's previous conversation. There's no viewer for it — pull it
+the student's previous conversation. The same file holds
+`style_trackers`: each student's explanation style (step by step,
+examples, exercises) and how their guided arcs went in each, updated by
+code after each turn (`agent/style_tracking.py`). There's no viewer for it — pull it
 with `railway volume files ... download /student_profiles.db ...` if you
 need to inspect or reset it.
 

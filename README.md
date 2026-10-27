@@ -33,34 +33,62 @@ evidência estruturada, e o tutor só responde citando essa evidência
 (anti-alucinação). Cada nó usa um modelo configurável por variável de
 ambiente.
 
+O ensino segue um arco por tópico (`agent/teaching.py`, por regras em
+código): perguntas guiadas, explicação completa quando o aluno trava,
+uma recapitulação com uma pergunta de checagem e, quando o aluno mostra
+que entendeu, o **tópico concluído** — o tutor confirma, recapitula e
+oferece o próximo assunto ou um exercício, sem reabrir o tópico. Quem
+decide se o aluno entendeu é o material: quando o aluno responde a uma
+pergunta, uma chamada curta (`judge_reply` em `agent/nodes.py`) avalia a
+resposta contra a evidência — correta, parcial, errada ou sem tentativa —
+antes de o tutor escrever. Uma resposta correta fecha o tópico (a partir
+da 2ª resposta do arco, ou logo na 1ª depois de uma explicação ou num
+exercício); nas outras, o tutor recebe o veredito e responde de acordo.
+Quem diz que tem prova recebe a explicação direto, uma vez por tópico;
+depois disso as respostas são avaliadas como as de qualquer aluno.
+
 Além das explicações guiadas, o tutor:
 - monta um **roteiro de revisão da disciplina inteira**, com citações para
   cada assunto, quando o aluno pede para revisar para a prova sem dizer o
   tema;
-- **corrige a resposta do aluno** a um exercício que ele mesmo passou;
+- **corrige a resposta do aluno** a um exercício que ele mesmo passou —
+  e um exercício resolvido certo conclui o tópico;
 - formata fórmulas em LaTeX e código em Markdown.
+
+O tutor ensina em um de três **estilos**, que moldam todas as respostas,
+das perguntas guiadas à explicação (`agent/prompts.STYLE_INSTRUCTIONS`):
+**passo a passo** (o entendimento construído em degraus pequenos — o
+padrão), **com exemplos** (casos concretos do material ou analogias do
+dia a dia) e **com exercícios** (pequenas tarefas com valores concretos
+para o aluno resolver). O aluno escolhe na primeira conversa e pode
+trocar quando quiser em **Configurações** (ícone no cabeçalho). O estilo
+também se ajusta sozinho, por regra em código (`agent/style_tracking.py`):
+cada arco que termina — tópico dominado ou aluno travado — conta para o
+estilo em uso, e depois de **3 arcos travados seguidos** o tutor passa
+para o estilo com melhor histórico. O tutor nunca troca de estilo sem
+essa evidência ou o pedido do aluno. Fica salvo por matrícula
+(`style_trackers` em `data/chats/student_profiles.db`) e vale também no
+meio de uma conversa.
 
 Além do estado por conversa, o app do aluno mantém um **perfil de
 aprendizagem por matrícula** entre sessões (`agent/profiler.py`,
-`utils/student_profile.py`): estilo de explicação preferido, se responde
+`utils/student_profile.py`): se responde
 bem a perguntas socráticas, tendência a frustração, tópicos já dominados
 / ainda difíceis, concepções erradas que já expressou, o que funcionou com
 ele, o que já sabe de fora da disciplina, e uma nota curta pro tutor. É
 atualizado **uma vez por sessão** — no início de cada conversa, um modelo
 relê a conversa anterior do aluno (e os sinais por turno do tutor) e
-mescla no perfil (persistido em `data/chats/student_profiles.db`). Na
-primeira conversa o aluno escolhe como prefere as explicações, o que já
-vale de imediato; a personalização observada liga a partir da 2ª
-conversa.
+mescla no perfil (persistido em `data/chats/student_profiles.db`). A
+personalização observada liga a partir da 2ª conversa.
 O perfil entra no prompt de geração e, por regras em código (sem chamada
 de modelo), ajusta o ritmo e o plano da resposta: limite de perguntas
 guiadas por aluno/tópico (sempre ao menos 2 antes de explicar), tópico já
-dominado fecha mais cedo, tópico difícil ganha explicação passo a passo,
-e o estilo preferido (exemplo primeiro, passo a passo, conciso,
-detalhado) molda as explicações (`agent/teaching.py`,
-`agent/plan_profile.py`, `agent/familiarity.py`); o que o perfil sabe
+dominado fecha mais cedo, tópico difícil ganha explicação passo a passo
+(`agent/teaching.py`, `agent/plan_profile.py`,
+`agent/familiarity.py`); o que o perfil sabe
 sobre o tópico atual vai junto da instrução do turno
-(`agent/profile_notes.py`). Nunca é alterado durante a conversa. Ao
+(`agent/profile_notes.py`). O perfil nunca é alterado durante a
+conversa (o estilo, sim — ver acima). Ao
 retomar uma conversa pela barra lateral, o tutor continua de onde parou,
 com as citações e os botões da última resposta.
 
@@ -134,7 +162,7 @@ pytest
 | `ROSTER_PATH` | não | `data/roster.txt` | lista de matrículas autorizadas |
 | `EMBED_MODEL` | não | `text-embedding-3-large` | modelo de embedding |
 | `GENERATION_MODEL` / `PLANNING_MODEL` / `TRACKING_MODEL` / `GRADING_MODEL` | não | ver `agent/chat_pipeline.py` | um modelo por nó do grafo |
-| `REVIEW_MODEL` | não | `gpt-4.1-mini` | escreve a resposta que confere a tentativa do aluno num exercício (só nesses turnos) |
+| `REVIEW_MODEL` | não | `gpt-4.1-mini` | avalia a resposta do aluno a uma pergunta contra o material (decide se o tópico está concluído) e escreve a resposta que confere a tentativa num exercício |
 | `PROFILER_MODEL` | não | `gpt-4.1-mini` | modelo do profiler de aluno (roda 1× por sessão) |
 | `PERSONALIZATION_MODE` | não | `alternate` | estudo de personalização: `alternate` (conversas alternam com/sem perfil por aluno), `always` ou `off` — ver DEPLOY.md |
 | `TITLE_MODEL` | não | `gpt-4.1-nano` | gera o título curto da conversa na barra lateral (1× por conversa) |
@@ -156,6 +184,9 @@ Tudo em `public/`, carregado pelo `.chainlit/config.toml`:
 - `avatars/tutor_virtual.png` (ícone das respostas — o nome vem de
   `name` na configuração), `favicon.png` (aba do navegador) e
   `tutor.png` (página de login). Para trocar, substitua mantendo os nomes.
+
+O seletor de estilo fica no painel de Configurações do Chainlit, no
+cabeçalho (`chat_settings_location = "sidebar"`).
 
 O navegador guarda esses arquivos em cache: ao mudar `style.css` ou
 `app.js`, troque o `?v=` deles no `.chainlit/config.toml`.
