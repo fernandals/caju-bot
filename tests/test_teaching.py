@@ -9,9 +9,15 @@ import pytest
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.nodes import apply_verdict, judge_reply, resolve_teaching_instructions
-from agent.prompts import ATTEMPT_REVIEW_NOTE, CLOSE_TOPIC_INSTRUCTIONS, DIRECT_MODE_INSTRUCTIONS, VERDICT_NOTES
-from agent.state import LearningState, ReplyVerdict, StudentProfile, StyleTracker, TeachingState
+from agent.nodes import apply_verdict, is_not_covered, judge_reply, resolve_teaching_instructions
+from agent.prompts import (
+    ATTEMPT_REVIEW_NOTE,
+    CLOSE_TOPIC_INSTRUCTIONS,
+    DIRECT_MODE_INSTRUCTIONS,
+    TEACHING_STAGE_INSTRUCTIONS,
+    VERDICT_NOTES,
+)
+from agent.state import AnswerPlan, ChunkEvidence, LearningState, ReplyVerdict, StudentProfile, StyleTracker, TeachingState
 from agent.teaching import (
     GUIDED_TURN_CAP,
     GUIDED_TURN_CAP_SHAKY,
@@ -82,6 +88,8 @@ TRANSITIONS = {
     "concluded stays concluded": (ts("concluded", 0), ls(learning_progress="stable"), None, ("guided", "concluded", 1, False)),
     "concluded, exam talk": (ts("concluded", 0, explained=True), ls(intent="exam_prep"), None, ("guided", "concluded", None)),
     "concluded, then a new subtopic": (ts("concluded", 0), ls(subtopic="while-loop"), None, ("guided", "introduce", 0)),
+    # Not in the material: looked up afresh on the next message.
+    "not covered, same topic: try again": (ts("not_covered", 0), ls(), None, ("guided", "introduce", 0)),
 }
 
 
@@ -366,3 +374,34 @@ def test_exercise_request(text, asks):
 def test_requested_exercise_may_close_mid_arc():
     previous = ts("check", 1, exercise_pending=True, exercise_requested=True)
     assert continue_exercise(previous, ts("check", 2, may_close=False)).may_close
+
+
+# ---------- topics the material does not cover ----------
+
+
+EVIDENCE = [ChunkEvidence(doc_id="DOC_1", citation="c", evidence=["e"], relevance_score=0.9)]
+
+
+def topic_turn(new_arc=True, evidence=(), needs_retrieval=True, topic="espanhol", **teaching):
+    return {
+        "new_arc": new_arc,
+        "evidence": list(evidence),
+        "answer_plan": AnswerPlan(strategy="guided_teaching", needs_retrieval=needs_retrieval, rationale="r"),
+        "learning_state": LearningState(topic=topic),
+        "teaching_state": ts("introduce", 0, **teaching),
+    }
+
+
+def test_a_new_topic_with_nothing_in_the_material_is_not_covered():
+    assert is_not_covered(topic_turn())
+    # Mid-topic, an empty retrieval ("não sei", an aside) is not the topic.
+    assert not is_not_covered(topic_turn(new_arc=False))
+    assert not is_not_covered(topic_turn(evidence=EVIDENCE))
+    assert not is_not_covered(topic_turn(needs_retrieval=False))
+    assert not is_not_covered(topic_turn(topic=None))
+    assert not is_not_covered(topic_turn(reviewing_attempt=True))
+
+
+def test_not_covered_wins_over_any_plan():
+    text = resolve_teaching_instructions(ts("not_covered", 0), "exercise_first", course_outline=["Heap"])
+    assert text.startswith(TEACHING_STAGE_INSTRUCTIONS["not_covered"]) and "- Heap" in text

@@ -97,6 +97,7 @@ _BY_STAGE = {
     # The recap ends with a question checking the explanation landed.
     "wrap_up": [HINT, DONT_KNOW],
     "concluded": [EXERCISE, NEXT_TOPIC],
+    "not_covered": [TOPICS],
 }
 
 

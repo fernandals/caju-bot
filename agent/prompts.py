@@ -371,6 +371,20 @@ _INTRODUCE_TAIL = (
 INTRODUCE_STYLED = _INTRODUCE_HEAD + _INTRODUCE_STYLE_CUE + _INTRODUCE_TAIL
 
 TEACHING_STAGE_INSTRUCTIONS = {
+    "not_covered": (
+        "The course material has NOTHING on what the student just asked. "
+        "Do NOT teach it, do NOT ask guiding questions about it, and do NOT "
+        "answer it from general knowledge - not even briefly. In one or two "
+        "warm sentences, say ONE of these, whichever fits:\n"
+        "- it is from another subject or everyday life (a language, "
+        "geography, cooking...): you only help with this course - and do "
+        "NOT mention the professor;\n"
+        "- it belongs to this course's subject area but the material has "
+        "nothing on it: you did not find it in the course material, and they "
+        "can check with the professor.\n"
+        "Then offer two or three topics from the course list below to study "
+        "instead. No citation markers."
+    ),
     "concluded": (
         "The student already showed they have this topic, and you closed it. "
         "Do NOT restart it: no introductory question about its name or "

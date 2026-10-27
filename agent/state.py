@@ -237,7 +237,7 @@ class TeachingState(BaseModel):
         )
     )
 
-    stage: Literal["introduce", "check", "deepen", "wrap_up", "refer", "concluded"] = Field(
+    stage: Literal["introduce", "check", "deepen", "wrap_up", "refer", "concluded", "not_covered"] = Field(
         default="introduce",
         description=(
             "'introduce' = orient briefly, end with one guiding question. "
@@ -248,7 +248,9 @@ class TeachingState(BaseModel):
             "'refer' = one-turn nudge toward the source material instead of "
             "answering directly, before conceding to 'deepen'. "
             "'concluded' = the student showed they have the topic; it is not "
-            "reopened while the topic stays the same."
+            "reopened while the topic stays the same. "
+            "'not_covered' = the course material has nothing on the topic "
+            "(set after retrieval, agent/nodes.generate_answer)."
         )
     )
 
@@ -486,6 +488,10 @@ class TutorState(MessagesState):
     # off adaptation that is not profile-based (in-session adaptation in
     # agent/teaching.py). Missing = on (CLI, tests).
     personalization_on: bool
+
+    # Whether this turn starts a topic (agent/nodes.plan_instruction) - a new
+    # topic with nothing in the material is not taught (stage not_covered).
+    new_arc: bool
 
     # The style tracker (agent/style_tracking.py); None in the study's
     # "off" arm and outside the app - no style, nothing tracked.

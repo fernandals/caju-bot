@@ -422,6 +422,10 @@ Recent conversation:
     result = {
         "answer_plan": answer_plan,
         "teaching_state": teaching_state,
+        "new_arc": (
+            teaching_state.topic_anchor != previous_teaching_state.topic_anchor
+            or previous_teaching_state.stage == "not_covered"
+        ),
         "personalization": personalization,
         "profile_notes": profile_notes,
         "style_tracker": tracker,
@@ -688,6 +692,21 @@ EVIDENCE
 {chr(10).join("- "+e for e in ev.evidence)}
 """
 
+    # A new topic with nothing in the material is not taught.
+    not_covered = is_not_covered(state)
+    if not_covered:
+        teaching_state = teaching_state.model_copy(
+            update={
+                "mode": "guided",
+                "stage": "not_covered",
+                "turns_in_stage": 0,
+                "may_close": False,
+                "exercise_pending": False,
+                "exercise_requested": False,
+            }
+        )
+        state = {**state, "teaching_state": teaching_state}
+
     # Judging the student's reply takes the stronger review model
     # (agent/models.py), like checking an exercise attempt below.
     verdict = judge_reply(state, context, review_model or model)
@@ -763,7 +782,36 @@ EVIDENCE
             }
         )
 
-    return {"messages": [response], **apply_verdict(state, verdict)}
+    updates = apply_verdict(state, verdict)
+    if not_covered:
+        updates["teaching_state"] = teaching_state
+
+    return {"messages": [response], **updates}
+
+
+def is_not_covered(state: TutorState) -> bool:
+    """
+    A topic starting this turn that the material has nothing on: retrieval
+    was asked for and no chunk passed assessment. Only at the start of a
+    topic - mid-topic, a "não sei" or an aside can retrieve nothing on a
+    topic that is covered. Not for course reviews, replies without a topic
+    yet, or an attempt at an exercise.
+    """
+    teaching_state = state.get("teaching_state")
+    learning_state = state.get("learning_state")
+    plan = state.get("answer_plan")
+
+    return bool(
+        state.get("new_arc")
+        and plan is not None
+        and plan.needs_retrieval
+        and not state.get("evidence")
+        and learning_state is not None
+        and learning_state.topic
+        and not is_course_review(learning_state)
+        and teaching_state is not None
+        and not teaching_state.reviewing_attempt
+    )
 
 
 def is_judged_turn(teaching_state: TeachingState) -> bool:
@@ -926,6 +974,10 @@ def resolve_teaching_instructions(
     if course_review and course_outline:
         outline = "\n".join(f"{i}. {t}" for i, t in enumerate(course_outline, 1))
         return prompts.COURSE_REVIEW_INSTRUCTIONS.format(outline=outline)
+
+    # Nothing in the material (is_not_covered): whatever else was planned.
+    if teaching_state.stage == "not_covered":
+        return _with_outline(prompts.TEACHING_STAGE_INSTRUCTIONS["not_covered"], course_outline)
 
     # A correct reply where closing is allowed: the topic is done.
     if closes_topic(teaching_state, verdict):

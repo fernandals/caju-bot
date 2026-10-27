@@ -243,7 +243,8 @@ def advance_teaching_state(
     # a topic change too: a student cramming for an exam (or already
     # frustrated - the tracker carries frustration across topics) should
     # not get a Socratic opener on every new topic before being answered.
-    if anchor != previous.topic_anchor:
+    # A topic the material did not cover is looked up afresh each message.
+    if anchor != previous.topic_anchor or previous.stage == "not_covered":
         escape = frustrated or exam
         return TeachingState(
             topic_anchor=anchor,
