@@ -11,6 +11,7 @@ from agent.state import (
     AnswerPlan,
     ChunkEvidence,
     LearningState,
+    ReplyVerdict,
     StudentProfile,
     TeachingState,
     TutorConfig,
@@ -21,6 +22,7 @@ from agent.plan_profile import apply_profile_to_plan, turn_style
 from agent.style_tracking import arc_outcome, record_arc
 from agent.profile_notes import select_profile_notes
 from agent.teaching import (
+    close_arc,
     continue_exercise,
     is_course_review,
     advance_teaching_state,
@@ -172,6 +174,16 @@ def update_tracking(state: TutorState, model):
     # Build prompt
     # -------------------------
 
+    # The attempt at an exercise is often the first message naming the
+    # topic - not a topic change for learning_progress (TRACKING_PROMPT).
+    teaching_state = state.get("teaching_state")
+    exercise_note = (
+        "\nThe tutor's last message gave the student an exercise: their "
+        "latest message is probably an attempt at it - judge it as one.\n"
+        if teaching_state is not None and teaching_state.exercise_pending
+        else ""
+    )
+
     prompt = f"""
 {prompts.TRACKING_PROMPT}
 
@@ -179,7 +191,7 @@ def update_tracking(state: TutorState, model):
 
 Previous learning state:
 {previous_state_text}
-
+{exercise_note}
 ---
 
 Recent conversation:
@@ -348,7 +360,7 @@ Recent conversation:
     if (
         answer_plan.strategy == "direct_answer"
         and teaching_state.mode == "guided"
-        and teaching_state.stage not in ("deepen", "wrap_up")
+        and teaching_state.stage not in ("deepen", "wrap_up", "concluded")
         and config.allow_direct_answers
     ):
         teaching_state = teaching_state.model_copy(
@@ -646,15 +658,6 @@ def generate_answer(state: TutorState, config: TutorConfig, model, review_model=
     teaching_state = state.get("teaching_state") or TeachingState()
     student_profile = state.get("student_profile") or StudentProfile()
 
-    teaching_instructions = resolve_teaching_instructions(
-        teaching_state,
-        answer_plan.strategy,
-        style=turn_style(answer_plan, teaching_state, state.get("style_tracker")),
-        course_review=is_course_review(learning_state),
-        course_outline=config.course_outline,
-        reviewing_attempt=teaching_state.reviewing_attempt,
-    )
-
     context = ""
     citations_by_doc_id = {}
 
@@ -674,6 +677,20 @@ CITE_AS
 EVIDENCE
 {chr(10).join("- "+e for e in ev.evidence)}
 """
+
+    # Judging the student's reply takes the stronger review model
+    # (agent/models.py), like checking an exercise attempt below.
+    verdict = judge_reply(state, context, review_model or model)
+
+    teaching_instructions = resolve_teaching_instructions(
+        teaching_state,
+        answer_plan.strategy,
+        style=turn_style(answer_plan, teaching_state, state.get("style_tracker")),
+        course_review=is_course_review(learning_state),
+        course_outline=config.course_outline,
+        reviewing_attempt=teaching_state.reviewing_attempt,
+        verdict=verdict,
+    )
 
     system_prompt = SystemMessage(
         content=prompts.GENERATE_PROMPT.format(
@@ -736,9 +753,79 @@ EVIDENCE
             }
         )
 
-    return {
-        "messages": [response]
-    }
+    return {"messages": [response], **apply_verdict(state, verdict)}
+
+
+def is_judged_turn(teaching_state: TeachingState) -> bool:
+    """A guided "check" turn: the student is replying to a question."""
+    return teaching_state.mode == "guided" and teaching_state.stage == "check"
+
+
+def judge_reply(state: TutorState, context: str, model) -> str | None:
+    """
+    The tutor's verdict on the student's reply (prompts.JUDGE_PROMPT), on
+    judged turns only; None elsewhere or if the call fails - the reply is
+    then written as before, and nothing closes.
+    """
+    teaching_state = state.get("teaching_state")
+    if teaching_state is None or not is_judged_turn(teaching_state):
+        return None
+
+    dialogue = dialogue_window(state["messages"], 2)
+    if len(dialogue) < 2 or not isinstance(dialogue[0], AIMessage):
+        return None
+
+    try:
+        judged = model.with_structured_output(ReplyVerdict).invoke(
+            prompts.JUDGE_PROMPT.format(
+                tutor_message=dialogue[0].content,
+                student_reply=dialogue[1].content,
+                context=context or "(none retrieved)",
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - an unjudged reply is still answered
+        print(f"[ANSWER GENERATION] Could not judge the reply: {exc}")
+        return None
+
+    if judged is None:
+        return None
+
+    print(f"[ANSWER GENERATION] Verdict: {judged.verdict} - {judged.reason}")
+    return judged.verdict
+
+
+# The tracker's label, corrected by the tutor's verdict when they disagree.
+_PROGRESS_FOR_VERDICT = {"correct": "improving", "partial": "improving", "wrong": "stable"}
+
+
+def apply_verdict(state: TutorState, verdict: str | None) -> dict:
+    """
+    State updates from the verdict on a "check" reply (judge_reply): a
+    correct reply where closing is allowed concludes the topic (teaching.close_arc)
+    and counts as a mastered arc for the student's style; otherwise the
+    tracker's learning_progress - judged without the material - yields to
+    the verdict. No verdict (other stages, or the marker missing): nothing.
+    """
+    teaching_state = state.get("teaching_state")
+    learning_state = state.get("learning_state")
+
+    if verdict in (None, "none") or teaching_state is None or not is_judged_turn(teaching_state):
+        return {}
+
+    if verdict == "correct" and teaching_state.may_close:
+        updates = {
+            "teaching_state": close_arc(teaching_state),
+            "learning_state": learning_state.model_copy(update={"learning_progress": "mastered"}),
+        }
+        tracker = state.get("style_tracker")
+        if tracker is not None:
+            updates["style_tracker"], _ = record_arc(tracker, "mastered")
+        return updates
+
+    progress = _PROGRESS_FOR_VERDICT[verdict]
+    if learning_state.learning_progress == "stuck" and verdict == "wrong":
+        progress = "stuck"
+    return {"learning_state": learning_state.model_copy(update={"learning_progress": progress})}
 
 
 NO_PROFILE_TEXT = "(No profile yet - this is one of the first sessions with this student.)"
@@ -776,6 +863,14 @@ def render_student_profile(profile: StudentProfile) -> str:
 _CUE_STYLES = {"examples", "exercises"}
 
 
+def _with_outline(instructions: str, course_outline: list[str] | None) -> str:
+    """The course topics, for a reply that suggests what to study next."""
+    if not course_outline:
+        return instructions
+    outline = "\n".join(f"- {t}" for t in course_outline)
+    return f"{instructions}\n\nCourse topics:\n{outline}"
+
+
 def resolve_teaching_instructions(
     teaching_state: TeachingState,
     strategy: str,
@@ -783,6 +878,7 @@ def resolve_teaching_instructions(
     course_review: bool = False,
     course_outline: list[str] | None = None,
     reviewing_attempt: bool = False,
+    verdict: str | None = None,
 ) -> str:
     """
     Picks the instruction block for generate_answer.
@@ -804,6 +900,10 @@ def resolve_teaching_instructions(
         outline = "\n".join(f"{i}. {t}" for i, t in enumerate(course_outline, 1))
         return prompts.COURSE_REVIEW_INSTRUCTIONS.format(outline=outline)
 
+    # A correct reply where closing is allowed: the topic is done.
+    if is_judged_turn(teaching_state) and verdict == "correct" and teaching_state.may_close:
+        return _with_outline(prompts.CLOSE_TOPIC_INSTRUCTIONS, course_outline)
+
     if teaching_state.mode == "direct":
         base = prompts.DIRECT_MODE_INSTRUCTIONS
     elif strategy in prompts.STRATEGY_OVERRIDE_INSTRUCTIONS:
@@ -818,6 +918,12 @@ def resolve_teaching_instructions(
 
     if style:
         base = f"{base}\n\n{prompts.STYLE_INSTRUCTIONS[style[0]][style[1]]}"
+
+    if teaching_state.stage == "concluded":
+        base = _with_outline(base, course_outline)
+
+    if is_judged_turn(teaching_state) and verdict in prompts.VERDICT_NOTES:
+        base = f"{base}\n\n{prompts.VERDICT_NOTES[verdict]}"
 
     # First, so it frames whatever the stage asks for next.
     if reviewing_attempt:

@@ -109,11 +109,12 @@ def turn(stage="check", mode="guided", strategy="guided_teaching", greeted=False
         (turn("check"), [HINT, DONT_KNOW]),
         (turn("refer"), [NOT_FOUND]),
         (turn("deepen"), [EXAMPLE, TEST_ME]),
-        (turn("wrap_up"), [EXERCISE, NEXT_TOPIC]),
+        (turn("wrap_up"), [HINT, DONT_KNOW]),
+        (turn("concluded"), [EXERCISE, NEXT_TOPIC]),
         (turn("check", mode="direct"), [EXAMPLE, TEST_ME]),
         # Mid-attempt at an exercise or a hint.
-        (turn("wrap_up", strategy="exercise_first"), [HINT, DONT_KNOW]),
-        (turn("wrap_up", strategy="hint_only"), [HINT, DONT_KNOW]),
+        (turn("concluded", strategy="exercise_first"), [HINT, DONT_KNOW]),
+        (turn("concluded", strategy="hint_only"), [HINT, DONT_KNOW]),
         (turn(greeted=True), STARTERS),
         ({"greeted": False}, []),
     ],
@@ -131,7 +132,7 @@ def test_buttons_after_the_topic_list_and_without_a_topic():
 
 
 def test_no_button_skips_the_guided_arc_or_the_pipeline():
-    stages = ("introduce", "check", "refer", "deepen", "wrap_up")
+    stages = ("introduce", "check", "refer", "deepen", "wrap_up", "concluded")
     every = STARTERS + [r for s in stages for r in quick_replies_for(turn(s))]
     for reply in every:
         # A button matching the small-talk regex would skip the pipeline.

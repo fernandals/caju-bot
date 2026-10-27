@@ -129,8 +129,9 @@ def continue_exercise(previous: TeachingState, proposed: TeachingState) -> Teach
     advance_teaching_state reads as a topic change and restarts the arc
     at "introduce" (do not explain anything, just ask), so a wrong attempt
     went uncorrected. With an exercise pending, a newly named or refined
-    topic stays in the same arc, at "check" (react to what they did).
-    A different topic altogether is still a topic change.
+    topic stays in the same arc, at "check" (react to what they did) - as
+    does an exercise asked for on a concluded topic. A different topic
+    altogether is still a topic change.
     """
     if not previous.exercise_pending:
         return proposed
@@ -140,10 +141,32 @@ def continue_exercise(previous: TeachingState, proposed: TeachingState) -> Teach
     previous_topic = previous.topic_anchor[0]
     same_arc = previous_topic is None or previous_topic == proposed.topic_anchor[0]
 
-    if proposed.mode == "guided" and proposed.stage == "introduce" and same_arc:
-        return reviewing.model_copy(update={"stage": "check", "turns_in_stage": 0})
+    # An exercise asked for on a concluded topic is judged like any other.
+    # A worked exercise is evidence enough on its own: right, it may close.
+    # (A task posed inside the guided arc - the "exercises" style - is
+    # already at "check" and keeps the arc's own may_close.)
+    if proposed.mode == "guided" and proposed.stage in ("introduce", "concluded") and same_arc:
+        reviewing = reviewing.model_copy(update={"stage": "check", "turns_in_stage": 0, "may_close": True})
 
     return reviewing
+
+
+def close_arc(teaching_state: TeachingState) -> TeachingState:
+    """
+    The student showed they have the topic (agent/nodes.generate_answer,
+    from the tutor's verdict on their reply): the arc ends mastered and the
+    topic is concluded - it is not reopened while the topic stays the same.
+    """
+    return teaching_state.model_copy(
+        update={
+            "mode": "guided",
+            "stage": "concluded",
+            "turns_in_stage": 0,
+            "may_close": False,
+            "exercise_pending": False,
+            "session_arcs_mastered": teaching_state.session_arcs_mastered + 1,
+        }
+    )
 
 
 def advance_teaching_state(
@@ -154,16 +177,24 @@ def advance_teaching_state(
     adapt_in_session: bool = True,
 ) -> TeachingState:
     """
-    Deterministically computes the next TeachingState from the just-updated
-    LearningState. No LLM call: reuses signals `update_tracking` already
-    infers every turn (comprehension_level, learning_progress,
+    Deterministically advances the guided-teaching arc from the previous
+    TeachingState and the freshly updated LearningState (learning_progress,
     frustration_level, intent) instead of asking a model to judge pacing.
 
-    Policy (see plan): guided-first with escape valves. While the student
-    stays engaged and unfrustrated, the arc loops in "check" asking fresh
+    Policy: guided-first with escape valves. While the student stays
+    engaged and unfrustrated, the arc loops in "check" asking fresh
     guiding questions; it concedes to a full explanation only when the
     student is stuck, the guided turn cap is hit, or an escape valve fires
-    (frustration / exam_prep).
+    (frustration / exam_prep). After an explanation ("deepen") comes a
+    recap with one question checking it landed ("wrap_up"), then "check"
+    again.
+
+    Whether the student has GOT the topic is not decided here: in "check"
+    the tutor judges the reply against the material and, when `may_close`
+    allows it, closes the arc (close_arc, called from
+    agent/nodes.generate_answer). The tracker's own "mastered" - judged
+    without the material - only opens that door at the turn cap. A
+    concluded topic stays concluded until the topic changes.
 
     `student_profile` (loaded once per session, never mutated here) and
     `familiarity` (agent/familiarity.py: is the current topic in the
@@ -173,7 +204,7 @@ def advance_teaching_state(
     - the guided-turn cap drops to GUIDED_TURN_CAP_SHAKY on a shaky topic
       and to the minimum for a student who does poorly with guiding
       questions - never below MIN_GUIDED_ATTEMPTS;
-    - on a solid topic one correct reply is enough to recap and move on.
+    - on a solid topic one correct reply is enough to close.
 
     `adapt_in_session` (off in the study's "off" arm): once guiding has
     ended stuck SESSION_STUCK_ARCS times in this conversation with nothing
@@ -183,28 +214,37 @@ def advance_teaching_state(
 
     anchor = (learning_state.topic, learning_state.subtopic)
 
+    frustrated = learning_state.frustration_level >= _frustration_threshold(student_profile)
+    exam = learning_state.intent in DIRECT_INTENTS
+
     # Escape valves are about the student, not the topic, so they apply on
     # a topic change too: a student cramming for an exam (or already
     # frustrated - the tracker carries frustration across topics) should
     # not get a Socratic opener on every new topic before being answered.
-    escape = (
-        learning_state.frustration_level >= _frustration_threshold(student_profile)
-        or learning_state.intent in DIRECT_INTENTS
-    )
-
     if anchor != previous.topic_anchor:
+        escape = frustrated or exam
         return TeachingState(
             topic_anchor=anchor,
             mode="direct" if escape else "guided",
             stage="deepen" if escape else "introduce",
             turns_in_stage=0,
+            explained=escape,
             session_arcs_stuck=previous.session_arcs_stuck,
             session_arcs_mastered=previous.session_arcs_mastered,
         )
 
-    if escape:
+    # Not reopened: a follow-up on a concluded topic is consolidation.
+    if previous.stage == "concluded":
         return previous.model_copy(
-            update={"mode": "direct", "stage": "deepen"}
+            update={"mode": "guided", "turns_in_stage": previous.turns_in_stage + 1, "may_close": False}
+        )
+
+    # Exam prep explains once per topic: once it has, the student answering
+    # the check question is judged like anyone else - otherwise every right
+    # answer got the whole explanation again and the topic never closed.
+    if frustrated or (exam and not previous.explained):
+        return previous.model_copy(
+            update={"mode": "direct", "stage": "deepen", "explained": True, "may_close": False}
         )
 
     if previous.stage == "refer":
@@ -212,107 +252,91 @@ def advance_teaching_state(
         # directly (see plan_instruction's direct_answer override). What
         # the student did with that nudge decides what happens now.
 
-        if learning_state.learning_progress == "mastered":
-            return previous.model_copy(
-                update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0}
-            )
-
-        if learning_state.learning_progress == "improving":
+        if learning_state.learning_progress in ("improving", "mastered"):
             # They engaged with the pointer rather than insisting - resume
-            # the guided arc.
+            # the guided arc; what they found is judged like any reply.
             return previous.model_copy(
-                update={"mode": "guided", "stage": "check", "turns_in_stage": 0}
+                update={"mode": "guided", "stage": "check", "turns_in_stage": 0, "may_close": True}
             )
 
         # stable or stuck: they did not engage with the pointer - one nudge
         # was enough, concede to the full explanation.
         return previous.model_copy(
-            update={"mode": "guided", "stage": "deepen", "turns_in_stage": 0}
-        )
-
-    if previous.stage in ("introduce", "check"):
-        # The student's reply to the last guiding question is what just
-        # updated `learning_state` in the tracking node this same turn, so
-        # it already reflects how well they engaged with THIS reply.
-
-        guided_turns = previous.turns_in_stage + 1
-        familiar = effective_familiarity(familiarity, student_profile)
-
-        # They've demonstrated the concept back -> recap and move on - but
-        # NOT on the student's first reply within the arc, mirroring the
-        # `stuck` rule below. The "introduce" question is deliberately
-        # easy (often just decoding the concept's name), so one right
-        # answer to it is not evidence of understanding the topic; the
-        # tracker does label that "mastered" once it is allowed to. One
-        # more question confirms it; if they have really got it the label
-        # persists and this fires on the next reply. Exception: a topic the
-        # profile says they already master - one right answer confirms it.
-        replies_to_confirm_mastery = 1 if familiar == "solid" else 2
-
-        if (
-            learning_state.learning_progress == "mastered"
-            and guided_turns >= replies_to_confirm_mastery
-        ):
-            return previous.model_copy(
-                update={
-                    "mode": "guided",
-                    "stage": "wrap_up",
-                    "turns_in_stage": 0,
-                    "session_arcs_mastered": previous.session_arcs_mastered + 1,
-                }
-            )
-
-        # `stuck` concedes to the full explanation - but NOT on the
-        # student's first reply within the arc. The tracker (a small model)
-        # over-labels "stuck"/"low" early, before there is real evidence of
-        # repeated struggle, and one premature "stuck" should not collapse
-        # the whole guided arc. Give at least one guiding nudge first; if
-        # they really are stuck the label persists (and frustration
-        # typically rises, tripping the escape valve above).
-        stuck_after_a_nudge = (
-            learning_state.learning_progress == "stuck"
-            and guided_turns >= MIN_GUIDED_ATTEMPTS
-        )
-
-        # Concede to the full explanation only when guiding has genuinely
-        # stalled or has gone on longer than is productive for this
-        # student on this topic. A student who is still engaging - even
-        # partially - and is not frustrated (the frustration escape valve
-        # above already handled that) keeps being guided rather than
-        # handed the answer.
-        concede = stuck_after_a_nudge or guided_turns >= guided_turn_cap(
-            student_profile,
-            familiar,
-            struggling_this_session=adapt_in_session and session_struggling(previous),
-        )
-
-        if concede:
-            return previous.model_copy(
-                update={
-                    "mode": "guided",
-                    "stage": "deepen",
-                    "turns_in_stage": 0,
-                    "session_arcs_stuck": previous.session_arcs_stuck + int(stuck_after_a_nudge),
-                }
-            )
-
-        # Still engaged, not there yet -> ask the next guiding question.
-        return previous.model_copy(
-            update={
-                "mode": "guided",
-                "stage": "check",
-                "turns_in_stage": guided_turns,
-            }
+            update={"mode": "guided", "stage": "deepen", "turns_in_stage": 0, "explained": True, "may_close": False}
         )
 
     if previous.stage == "deepen":
         return previous.model_copy(
-            update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0}
+            update={"mode": "guided", "stage": "wrap_up", "turns_in_stage": 0, "may_close": False}
         )
 
-    # wrap_up: same topic, student keeps engaging -> a fresh micro-cycle
+    if previous.stage == "wrap_up":
+        # The student's answer to the recap's check question - after a full
+        # explanation, one right answer is enough.
+        return previous.model_copy(
+            update={"mode": "guided", "stage": "check", "turns_in_stage": 0, "may_close": True}
+        )
+
+    # introduce / check: the student's reply to the last guiding question
+    # is what just updated `learning_state` in the tracking node this same
+    # turn, so it already reflects how well they engaged with THIS reply.
+    guided_turns = previous.turns_in_stage + 1
+    familiar = effective_familiarity(familiarity, student_profile)
+
+    # Replies before a right one may close the topic. The "introduce"
+    # question is deliberately easy (often just decoding the concept's
+    # name), so one right answer to it is not evidence of understanding;
+    # one more question confirms it. Exception: a topic the profile says
+    # they already master, or one already explained in this arc.
+    replies_to_close = 1 if familiar == "solid" or previous.explained else 2
+
+    # `stuck` concedes to the full explanation - but NOT on the student's
+    # first reply within the arc. The tracker (a small model) over-labels
+    # "stuck"/"low" early, before there is real evidence of repeated
+    # struggle, and one premature "stuck" should not collapse the whole
+    # guided arc. Give at least one guiding nudge first; if they really
+    # are stuck the label persists (and frustration typically rises,
+    # tripping the escape valve above).
+    stuck_after_a_nudge = (
+        learning_state.learning_progress == "stuck"
+        and guided_turns >= MIN_GUIDED_ATTEMPTS
+    )
+
+    # Concede to the full explanation only when guiding has genuinely
+    # stalled or has gone on longer than is productive for this student on
+    # this topic - unless the tracker sees the student getting it, when
+    # this reply gets its chance to close instead. A student who is still
+    # engaging - even partially - and is not frustrated (the frustration
+    # escape valve above already handled that) keeps being guided rather
+    # than handed the answer.
+    at_cap = guided_turns >= guided_turn_cap(
+        student_profile,
+        familiar,
+        struggling_this_session=adapt_in_session and session_struggling(previous),
+    )
+    concede = stuck_after_a_nudge or (at_cap and learning_state.learning_progress != "mastered")
+
+    if concede:
+        return previous.model_copy(
+            update={
+                "mode": "guided",
+                "stage": "deepen",
+                "turns_in_stage": 0,
+                "explained": True,
+                "may_close": False,
+                "session_arcs_stuck": previous.session_arcs_stuck + int(stuck_after_a_nudge),
+            }
+        )
+
+    # Still engaged -> react to the reply; the tutor closes the topic if
+    # it is right and enough replies are in.
     return previous.model_copy(
-        update={"mode": "guided", "stage": "introduce", "turns_in_stage": 0}
+        update={
+            "mode": "guided",
+            "stage": "check",
+            "turns_in_stage": guided_turns,
+            "may_close": guided_turns >= replies_to_close,
+        }
     )
 
 

@@ -237,15 +237,18 @@ class TeachingState(BaseModel):
         )
     )
 
-    stage: Literal["introduce", "check", "deepen", "wrap_up", "refer"] = Field(
+    stage: Literal["introduce", "check", "deepen", "wrap_up", "refer", "concluded"] = Field(
         default="introduce",
         description=(
             "'introduce' = orient briefly, end with one guiding question. "
             "'check' = evaluate the student's reply to that question. "
             "'deepen' = give the full grounded explanation. "
-            "'wrap_up' = brief recap, invite practice or the next topic. "
+            "'wrap_up' = after an explanation: brief recap and one question "
+            "checking it landed. "
             "'refer' = one-turn nudge toward the source material instead of "
-            "answering directly, before conceding to 'deepen'."
+            "answering directly, before conceding to 'deepen'. "
+            "'concluded' = the student showed they have the topic; it is not "
+            "reopened while the topic stays the same."
         )
     )
 
@@ -265,6 +268,20 @@ class TeachingState(BaseModel):
     session_arcs_mastered: int = Field(
         default=0,
         description="Guided arcs in this conversation that ended with the student mastering the topic.",
+    )
+
+    # Whether this arc has had a full explanation (deepen / direct mode):
+    # exam prep then stops re-explaining, and one right answer may close.
+    explained: bool = Field(
+        default=False,
+        description="This arc already gave the full explanation.",
+    )
+
+    # Per turn, from agent/teaching.advance_teaching_state: whether a right
+    # reply this turn may close the topic (agent/nodes.generate_answer).
+    may_close: bool = Field(
+        default=False,
+        description="A fully correct reply this turn concludes the topic.",
     )
 
     # The exercise loop (agent/teaching.continue_exercise): set by
@@ -343,6 +360,19 @@ class AnswerPlan(BaseModel):
     rationale: str = Field(
         description=("Short explanation of why this plan was selected.")
     )
+
+class ReplyVerdict(BaseModel):
+    """The tutor's judgement of the student's reply (agent/nodes.judge_reply)."""
+
+    reason: str = Field(description="One short sentence: what the reply gets right or wrong.")
+    verdict: Literal["correct", "partial", "wrong", "none"] = Field(
+        description=(
+            "'correct' = answers what was asked, right by the material; "
+            "'partial' = partly right; 'wrong' = wrong; "
+            "'none' = not an attempt (a question, 'não sei', small talk)."
+        )
+    )
+
 
 class ChunkEvidence(BaseModel):
     """

@@ -35,7 +35,12 @@ def choose_style(tracker: StyleTracker, style: Style) -> StyleTracker:
 
 
 def arc_outcome(previous: TeachingState, current: TeachingState) -> ArcOutcome | None:
-    """How a guided arc ended this turn, from the arc counters (agent/teaching.py)."""
+    """
+    How a guided arc ended this turn, from the arc counters
+    (agent/teaching.py). Pacing only ever ends one stuck: a mastered arc is
+    closed after the reply, by the tutor's verdict, and recorded there
+    (agent/nodes.apply_verdict).
+    """
     if current.session_arcs_mastered > previous.session_arcs_mastered:
         return "mastered"
     if current.session_arcs_stuck > previous.session_arcs_stuck:

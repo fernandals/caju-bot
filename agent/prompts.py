@@ -170,7 +170,10 @@ Do NOT keep old topic in these cases. If topic changes, DO NOT reset frustration
 
 When the topic changes, reset learning_progress to "stable" and clear
 current_difficulty and open_question, unless they clearly carry over to
-the new topic.
+the new topic. Exception: when the tutor's last message gave the student
+an exercise or task and this message is an attempt at it, naming the
+topic for the first time is NOT a reset - judge the attempt as usual (a
+fully correct attempt is "mastered").
 
 ---
 
@@ -211,6 +214,9 @@ The proposed teaching stage already determines most of the pacing. Set
   (never step_by_step - those stages are a single question, not a walkthrough)
 - proposed stage "deepen" or "wrap_up" -> strategy = step_by_step or
   guided_teaching, whichever fits the content better
+- proposed stage "concluded" -> strategy = guided_teaching (the topic is
+  done; but a request for an exercise or a hint still follows the
+  exercise_first / hint_only rule below)
 - proposed mode "direct" -> strategy = direct_answer
 
 The ONE exception: if the student's own message clearly asks to skip the
@@ -238,6 +244,7 @@ Should generally follow the proposed stage:
 - "check" -> light or medium
 - "deepen" -> medium or deep, depending on comprehension_level
 - "wrap_up" -> light
+- "concluded" -> light
 - mode "direct" -> whatever depth best answers the question directly
 
 ---
@@ -364,6 +371,16 @@ _INTRODUCE_TAIL = (
 INTRODUCE_STYLED = _INTRODUCE_HEAD + _INTRODUCE_STYLE_CUE + _INTRODUCE_TAIL
 
 TEACHING_STAGE_INSTRUCTIONS = {
+    "concluded": (
+        "The student already showed they have this topic, and you closed it. "
+        "Do NOT restart it: no introductory question about its name or "
+        "basics, nothing they already showed. Reply to what they actually "
+        "said: a thanks or an 'ok' gets a short, warm reply that suggests a "
+        "next topic or an exercise; a follow-up question on this topic gets "
+        "a short, grounded answer - it is consolidation, not a new arc; a "
+        "request to move on gets one or two next topics from the course to "
+        "choose from." + _CITATION_REMINDER
+    ),
     "introduce": _INTRODUCE_HEAD + _INTRODUCE_NAME_CUE + _INTRODUCE_TAIL,
     "check": (
         "Look at what the student actually did with your last question.\n"
@@ -394,15 +411,12 @@ TEACHING_STAGE_INSTRUCTIONS = {
         "as indicated in the instructional plan below." + _CITATION_REMINDER
     ),
     "wrap_up": (
-        "Briefly recap the key takeaway in 1-2 sentences, grounded in the "
-        "material. If the retrieved material below covers more than what "
-        "you just discussed - a fuller chapter, a related section, worked "
-        "examples - point the student to it by its CITE_AS marker so they "
-        "can dig deeper on their own; one pointer is enough, do not list "
-        "every source. If nothing in the material goes beyond what was "
-        "already covered, skip that and just invite them to try a related "
-        "exercise or move on to the next topic. Keep it short."
-        + _CITATION_REMINDER
+        "The full explanation was given in your previous reply. Recap the "
+        "key takeaway in 1-2 sentences, grounded in the material, then ask "
+        "ONE short question that checks the explanation landed - something "
+        "the student can answer from what was explained (not a yes/no, not "
+        "'did that make sense?'). You expect them to answer it in their next "
+        "message. Keep it short." + _CITATION_REMINDER
     ),
     "refer": (
         "The student is asking to skip straight to the answer. Do NOT "
@@ -480,6 +494,63 @@ STRATEGY_STEP_NOTE = (
     "Structure the explanation as explicit, numbered steps the student can "
     "follow in order."
 )
+
+# In "check", the student's reply is judged before the tutor writes
+# (agent/nodes.judge_reply) - by a separate call: asked to judge and to
+# decide closing inside the long generation prompt, the generator never
+# did either.
+JUDGE_PROMPT = """
+You judge a student's reply in a tutoring conversation, against the
+course material below. The tutor asked something; did the student's
+reply answer it correctly?
+
+- correct: answers what was asked, and is right by the material. Judge a
+  beginner fairly: their own words count, and details that were not asked
+  for are not required.
+- partial: part of it is right, part is missing or off.
+- wrong: the main point is wrong.
+- none: not an attempt at what was asked - a question of their own, "não
+  sei", small talk, a request.
+
+Tutor's last message:
+{tutor_message}
+
+Student's reply:
+{student_reply}
+
+Course material:
+{context}
+"""
+
+# Replaces the stage block on the turn a correct reply closes the topic
+# (agent/teaching.close_arc).
+CLOSE_TOPIC_INSTRUCTIONS = (
+    "The student's reply is CORRECT and shows they have the core idea of "
+    "this topic - the topic is done. Do NOT ask another question about it. "
+    "Confirm plainly what they got right, recap the key takeaway in 1-2 "
+    "sentences, grounded in the material, and close: offer a next topic "
+    "from the course or an exercise." + _CITATION_REMINDER
+)
+
+# Appended in "check" with the judged verdict, so the reply agrees with it.
+VERDICT_NOTES = {
+    "correct": (
+        "JUDGED: the student's reply is CORRECT. Say so plainly, then ask "
+        "the next question, one step further."
+    ),
+    "partial": (
+        "JUDGED: the student's reply is PARTLY right. Say exactly what is "
+        "right and what is missing or off before the next question."
+    ),
+    "wrong": (
+        "JUDGED: the student's reply is WRONG. Do not praise it or call it "
+        "right: say plainly what is off, without giving the full answer, "
+        "then ask a question that helps them fix it."
+    ),
+    "none": (
+        "JUDGED: the student did not attempt your question (CASE B above)."
+    ),
+}
 
 # Put first when the previous reply gave the student an exercise
 # (agent/teaching.continue_exercise): their message is likely an attempt

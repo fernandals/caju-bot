@@ -94,7 +94,9 @@ _BY_STAGE = {
     "check": [HINT, DONT_KNOW],
     "refer": [NOT_FOUND],
     "deepen": [EXAMPLE, TEST_ME],
-    "wrap_up": [EXERCISE, NEXT_TOPIC],
+    # The recap ends with a question checking the explanation landed.
+    "wrap_up": [HINT, DONT_KNOW],
+    "concluded": [EXERCISE, NEXT_TOPIC],
 }
 
 
