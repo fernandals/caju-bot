@@ -7,7 +7,11 @@ __init__.py
 # ...except this one: a third-party `scripts` package in the venv shadows
 # the namespace package, breaking `python -m scripts.<name>`.
 !scripts/__init__.py
-data/
+# data/ is local state, except the one course's knowledge base and roster:
+# the Dockerfile bakes them in, and a GitHub deploy only sees what's versioned.
+data/*
+!data/knowledge_bases/
+!data/roster.txt
 .aider*
 *.out
 .mypy_cache/
