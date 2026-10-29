@@ -846,3 +846,46 @@ levers novos `style_note_<estilo>`, `style_switch_<estilo>` e
 - Decidir: esconder o seletor de estilo nas conversas "off"; avisar o
   aluno quando o estilo mudar sozinho.
 - Continuam do log anterior: deploy no Railway e nome do app.
+
+---
+
+## 📅 Data
+- **2026-10-29** (preparação para os testes)
+
+### 📌 Status do Projeto
+Revisão do fluxo completo antes da rodada de testes: testes
+automatizados, conversas roteirizadas contra o grafo real (base de EDB2)
+e o app subindo de verdade. O fluxo principal funciona; quatro ajustes
+saíram dessa revisão.
+
+### ✅ Mudanças
+- **O tópico nunca é a disciplina**: nos dados reais, o tópico mais
+  gravado era "Estruturas de Dados Básicas II" (21 de ~90 turnos), com o
+  assunto de verdade no `subtopic`. Conferido turno a turno: todo turno
+  sem tópico era mesmo sem tópico (lista de assuntos, revisão geral,
+  exercício sem assunto) — o modelo reconhecia; o problema era só o nome
+  da disciplina no lugar do tópico, que também escondia um caso sem
+  tópico. O tracking agora recebe o nome da disciplina e a lista de
+  tópicos, e o código descarta um tópico que é só o nome da disciplina
+  (`without_course_topic`). Afeta as métricas por tópico, as listas do
+  perfil e a revisão geral (que só dispara sem tópico).
+- **Exercício sem assunto pergunta o assunto**: "me passa um exercício"
+  (o botão "Quero praticar") sem tópico fazia o tutor escolher um ao
+  acaso. Agora ele pergunta sobre qual assunto, sugerindo alguns da
+  lista, e o exercício vem com a resposta. Pergunta uma vez só: se o
+  aluno ainda não escolher, o tutor escolhe.
+- **Personalização sempre ligada** (`PERSONALIZATION_MODE=always` por
+  padrão) durante os testes; `alternate` volta quando o estudo começar.
+- **Interface em português do Brasil**: a tradução do Chainlit estava em
+  português de Portugal ("A carregar...", "ficheiros", "Eliminar").
+
+### ⚠️ Limitações
+- Mudanças no prompt de tracking ainda não medidas com o
+  `evals/tracking_eval.py` (sem créditos na API no dia); o eval já foi
+  atualizado para a nova convenção e ganhou o grupo `course`.
+- Métricas de tópico antes e depois de 2026-10-29 não são comparáveis.
+
+### 🔜 Próximos Passos
+- Rodar `RUNS=3 python -m evals.tracking_eval` e repetir as conversas
+  roteirizadas.
+- Nome do app e ícone; o tutor saber o próprio nome.
