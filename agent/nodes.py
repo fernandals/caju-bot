@@ -17,15 +17,15 @@ from agent.state import (
     TutorConfig,
     TutorState,
 )
-from agent.familiarity import topic_familiarity
+from agent.familiarity import core_words, topic_familiarity
 from agent.plan_profile import apply_profile_to_plan, turn_style
 from agent.style_tracking import arc_outcome, record_arc
 from agent.profile_notes import select_profile_notes
 from agent.teaching import (
     close_arc,
     continue_exercise,
+    exercise_turn,
     is_course_review,
-    is_exercise_request,
     advance_teaching_state,
     effective_familiarity,
     personalization_trace,
@@ -150,8 +150,28 @@ def build_conversation_transcript(messages) -> str:
     return json.dumps(conversation, indent=2, ensure_ascii=False)
 
 
+def without_course_topic(learning_state: LearningState, subject: str) -> LearningState:
+    """
+    The tracker used to name the course itself as the topic, with the
+    real one in subtopic ("Estruturas de Dados Básicas II" / "Heap") - or
+    with none at all, hiding that the student had not named a topic yet.
+    A topic that is only the course's name (agent/familiarity.core_words:
+    nothing left once its words are dropped) yields to the subtopic, or
+    to None.
+    """
+    topic, subtopic = learning_state.topic, learning_state.subtopic
+
+    while topic and not core_words(topic, subject):
+        topic, subtopic = subtopic, None
+
+    if (topic, subtopic) == (learning_state.topic, learning_state.subtopic):
+        return learning_state
+
+    return learning_state.model_copy(update={"topic": topic, "subtopic": subtopic})
+
+
 @node("TRACKING")
-def update_tracking(state: TutorState, model):
+def update_tracking(state: TutorState, model, config: TutorConfig | None = None):
     """
     Infers and updates the student's current pedagogical learning state
     from the recent conversation context.
@@ -189,11 +209,29 @@ def update_tracking(state: TutorState, model):
         else ""
     )
 
+    # The tutor asked which topic the exercise should be on: a bare "heap"
+    # is the answer, and the topic.
+    if teaching_state is not None and teaching_state.exercise_topic_pending:
+        exercise_note = (
+            "\nThe tutor's last message asked which topic the student wants "
+            "an exercise on: their latest message is probably the answer - "
+            "the topic (intent: practice).\n"
+        )
+
+    # Without the course's name, the tracker took it for the topic.
+    course_text = ""
+    if config is not None:
+        course_text = f"\nCourse (never the topic itself): {config.subject}\n"
+        if config.course_outline:
+            course_text += "Course topic list:\n" + "\n".join(
+                f"- {t}" for t in config.course_outline
+            ) + "\n"
+
     prompt = f"""
 {prompts.TRACKING_PROMPT}
 
 ---
-
+{course_text}
 Previous learning state:
 {previous_state_text}
 {exercise_note}
@@ -216,6 +254,9 @@ Recent conversation:
         # forward rather than crashing the turn.
         print("[TRACKING] No structured output; keeping previous state.")
         new_learning_state = previous_state or LearningState()
+
+    if config is not None:
+        new_learning_state = without_course_topic(new_learning_state, config.subject)
 
     return {
         "learning_state": new_learning_state,
@@ -362,9 +403,18 @@ Recent conversation:
     # the student's wellbeing, not about skipping effort).
     teaching_state = proposed_teaching_state
 
-    # An explicit request to practise gets an exercise (teaching.is_exercise_request).
-    if is_exercise_request(latest_student_question(state["messages"])):
+    # An explicit request to practise gets an exercise - on a topic the
+    # student names: with none yet, the tutor asks which (teaching.exercise_turn),
+    # which needs nothing from the material.
+    exercise = exercise_turn(
+        latest_student_question(state["messages"]), learning_state, previous_teaching_state
+    )
+    if exercise == "exercise":
         answer_plan = answer_plan.model_copy(update={"strategy": "exercise_first"})
+    elif exercise == "ask_topic":
+        answer_plan = answer_plan.model_copy(
+            update={"strategy": "guided_teaching", "needs_retrieval": False}
+        )
 
     if (
         answer_plan.strategy == "direct_answer"
@@ -410,12 +460,18 @@ Recent conversation:
     personalization["levers"] += note_levers
 
     # Remembered for the next turn, whose reply then checks the attempt.
-    # An "exercises" student gets a task in every styled reply.
+    # An "exercises" student gets a task in every styled reply - but not
+    # in the one asking which topic to practise.
+    asks_topic = exercise == "ask_topic"
     teaching_state = teaching_state.model_copy(
         update={
-            "exercise_pending": answer_plan.strategy == "exercise_first"
-            or (style is not None and style[0] == "exercises"),
+            "exercise_pending": not asks_topic
+            and (
+                answer_plan.strategy == "exercise_first"
+                or (style is not None and style[0] == "exercises")
+            ),
             "exercise_requested": answer_plan.strategy == "exercise_first",
+            "exercise_topic_pending": asks_topic,
         }
     )
 
@@ -815,8 +871,13 @@ def is_not_covered(state: TutorState) -> bool:
 
 
 def is_judged_turn(teaching_state: TeachingState) -> bool:
-    """A guided "check" turn: the student is replying to a question."""
-    return teaching_state.mode == "guided" and teaching_state.stage == "check"
+    """A guided "check" turn: the student is replying to a question - not
+    asking for an exercise the tutor first asks the topic of."""
+    return (
+        teaching_state.mode == "guided"
+        and teaching_state.stage == "check"
+        and not teaching_state.exercise_topic_pending
+    )
 
 
 def judge_reply(state: TutorState, context: str, model) -> ReplyVerdict | None:
@@ -978,6 +1039,10 @@ def resolve_teaching_instructions(
     # Nothing in the material (is_not_covered): whatever else was planned.
     if teaching_state.stage == "not_covered":
         return _with_outline(prompts.TEACHING_STAGE_INSTRUCTIONS["not_covered"], course_outline)
+
+    # An exercise asked for with no topic named (teaching.exercise_turn).
+    if teaching_state.exercise_topic_pending:
+        return _with_outline(prompts.ASK_EXERCISE_TOPIC_INSTRUCTIONS, course_outline)
 
     # A correct reply where closing is allowed: the topic is done.
     if closes_topic(teaching_state, verdict):

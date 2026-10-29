@@ -286,6 +286,14 @@ class TeachingState(BaseModel):
         description="The last reply gave an exercise the student asked for.",
     )
 
+    # An exercise asked for with no topic named: the tutor asks which
+    # topic first (agent/teaching.exercise_turn), and the exercise comes
+    # with the student's answer.
+    exercise_topic_pending: bool = Field(
+        default=False,
+        description="The last reply asked which topic the student wants an exercise on.",
+    )
+
     # Per turn, from agent/teaching.advance_teaching_state: whether a right
     # reply this turn may close the topic (agent/nodes.generate_answer).
     may_close: bool = Field(

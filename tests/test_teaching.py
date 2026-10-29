@@ -5,19 +5,39 @@ that. Deterministic - this decides what a student experiences most
 directly, whether they get guided or just told.
 """
 
+import contextlib
+import io
+
 import pytest
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.nodes import apply_verdict, is_not_covered, judge_reply, resolve_teaching_instructions
+from agent.nodes import (
+    apply_verdict,
+    is_judged_turn,
+    is_not_covered,
+    judge_reply,
+    plan_instruction,
+    resolve_teaching_instructions,
+)
 from agent.prompts import (
+    ASK_EXERCISE_TOPIC_INSTRUCTIONS,
     ATTEMPT_REVIEW_NOTE,
     CLOSE_TOPIC_INSTRUCTIONS,
     DIRECT_MODE_INSTRUCTIONS,
     TEACHING_STAGE_INSTRUCTIONS,
     VERDICT_NOTES,
 )
-from agent.state import AnswerPlan, ChunkEvidence, LearningState, ReplyVerdict, StudentProfile, StyleTracker, TeachingState
+from agent.state import (
+    AnswerPlan,
+    ChunkEvidence,
+    LearningState,
+    ReplyVerdict,
+    StudentProfile,
+    StyleTracker,
+    TeachingState,
+    TutorConfig,
+)
 from agent.teaching import (
     GUIDED_TURN_CAP,
     GUIDED_TURN_CAP_SHAKY,
@@ -25,6 +45,7 @@ from agent.teaching import (
     advance_teaching_state,
     close_arc,
     continue_exercise,
+    exercise_turn,
     is_exercise_request,
     guided_turn_cap,
     is_course_review,
@@ -374,6 +395,66 @@ def test_exercise_request(text, asks):
 def test_requested_exercise_may_close_mid_arc():
     previous = ts("check", 1, exercise_pending=True, exercise_requested=True)
     assert continue_exercise(previous, ts("check", 2, may_close=False)).may_close
+
+
+NO_TOPIC = LearningState(intent="practice")
+ASKED = TeachingState(stage="check", exercise_topic_pending=True)
+
+
+def test_an_exercise_without_a_topic_asks_which_first():
+    request = "Me passa um exercício para eu praticar."
+    assert exercise_turn(request, NO_TOPIC, TeachingState()) == "ask_topic"
+    assert exercise_turn(request, ls(), TeachingState()) == "exercise"
+    # The answer naming the topic gets the exercise.
+    assert exercise_turn("heap", ls(topic="Heap", subtopic=None), ASKED) == "exercise"
+    # Asked once: still no topic named, the tutor picks.
+    assert exercise_turn("qualquer um", NO_TOPIC, ASKED) == "exercise"
+    assert exercise_turn(request, NO_TOPIC, ASKED) == "exercise"
+    assert exercise_turn("o que é heap?", ls(), TeachingState()) is None
+
+
+class Planner:
+    def __init__(self, strategy="guided_teaching"):
+        self.strategy = strategy
+
+    def with_structured_output(self, _):
+        return self
+
+    def invoke(self, _):
+        return AnswerPlan(strategy=self.strategy, needs_retrieval=True, rationale="r")
+
+
+def plan_turn(text, learning, previous, strategy="exercise_first"):
+    with contextlib.redirect_stdout(io.StringIO()):
+        return plan_instruction(
+            {
+                "messages": [HumanMessage(content=text)],
+                "learning_state": learning,
+                "teaching_state": previous,
+                "student_profile": StudentProfile(),
+                "style_tracker": StyleTracker(active="exercises"),
+            },
+            config=TutorConfig(subject="Estruturas de Dados", course_outline=["Heap"]),
+            model=Planner(strategy),
+        )
+
+
+def test_asking_the_topic_is_not_an_exercise():
+    out = plan_turn("Me passa um exercício para eu praticar.", NO_TOPIC, TeachingState())
+    state = out["teaching_state"]
+    assert state.exercise_topic_pending
+    # Not an attempt to review next turn, nothing to look up, not a judged reply.
+    assert not state.exercise_pending and not out["answer_plan"].needs_retrieval
+    assert out["answer_plan"].strategy != "exercise_first" and not is_judged_turn(state)
+    text = resolve_teaching_instructions(state, "guided_teaching", course_outline=["Heap"])
+    assert text.startswith(ASK_EXERCISE_TOPIC_INSTRUCTIONS) and "- Heap" in text
+
+
+def test_the_named_topic_gets_the_exercise():
+    out = plan_turn("heap", ls(topic="Heap", subtopic=None), ASKED, strategy="guided_teaching")
+    state = out["teaching_state"]
+    assert out["answer_plan"].strategy == "exercise_first"
+    assert state.exercise_pending and state.exercise_requested and not state.exercise_topic_pending
 
 
 # ---------- topics the material does not cover ----------

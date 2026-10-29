@@ -24,11 +24,12 @@ from typing import Literal
 
 Arm = Literal["on", "off"]
 
-# always    - every conversation personalized (pre-study behavior)
+# always    - every conversation personalized (the default: testing the
+#             personalization itself, before the study starts)
 # alternate - on/off alternating per student, the study design
 # off       - never personalized (profiles still built)
 MODES = ("always", "alternate", "off")
-DEFAULT_MODE = "alternate"
+DEFAULT_MODE = "always"
 
 
 def personalization_mode() -> str:

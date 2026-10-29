@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 
 from agent.familiarity import Familiarity
 from agent.state import LearningState, StudentProfile, TeachingState
@@ -38,6 +39,28 @@ _EXERCISE_REQUEST_RE = re.compile(
 def is_exercise_request(text: str | None) -> bool:
     """The student's message asks for an exercise / to practise."""
     return bool(text) and bool(_EXERCISE_REQUEST_RE.search(text))
+
+
+def exercise_turn(
+    question: str | None, learning_state: LearningState, previous: TeachingState
+) -> Literal["ask_topic", "exercise"] | None:
+    """
+    How this turn answers a request to practise (agent/nodes.plan_instruction).
+
+    With no topic named ("me passa um exercício", the starter button) the
+    tutor picked one at random; it asks which topic first, and the
+    student's answer gets the exercise. Asked once: a student who still
+    names none ("qualquer um") gets one on the tutor's pick.
+    """
+    requested = is_exercise_request(question)
+
+    if not requested and not previous.exercise_topic_pending:
+        return None
+
+    if requested and not learning_state.topic and not previous.exercise_topic_pending:
+        return "ask_topic"
+
+    return "exercise"
 
 
 def is_course_review(learning_state: LearningState | None) -> bool:

@@ -17,7 +17,7 @@ import collections
 import contextlib
 import io
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from dotenv import load_dotenv
@@ -32,8 +32,24 @@ from agent.state import LearningState, TeachingState, TutorConfig
 
 H, A = HumanMessage, AIMessage
 
-PF = dict(topic="Arquitetura de Software", subtopic="Pipe-Filter")
-CS = dict(topic="Arquitetura de Software", subtopic="Cliente-Servidor")
+# The topic is the concept, named as in the course outline - never the
+# course itself (TRACKING_PROMPT; agent/nodes.without_course_topic).
+SA = TutorConfig(
+    subject="Arquitetura de Software",
+    course_outline=[
+        "Estilo Pipe-Filter",
+        "Estilo Cliente-Servidor",
+        "Estilo Blackboard",
+        "Arquitetura em Camadas",
+    ],
+)
+EDB = TutorConfig(
+    subject="Estruturas de Dados Básicas II",
+    course_outline=["Heap e Heapsort", "Árvores AVL (Balanceamento e Rotação)", "Busca Digital"],
+)
+
+PF = dict(topic="Estilo Pipe-Filter")
+CS = dict(topic="Estilo Cliente-Servidor")
 
 
 @dataclass
@@ -44,6 +60,8 @@ class Case:
     messages: list
     # field -> (description, predicate over the produced value)
     checks: dict[str, tuple[str, Callable]]
+    config: TutorConfig = field(default_factory=lambda: SA)
+    teaching: TeachingState | None = None
 
 
 def is_(*allowed):
@@ -72,6 +90,10 @@ def changed_from(value):
 
 NONE = ("None", lambda v: v is None)
 SET = ("set", lambda v: bool(v))
+
+
+def mentions(word):
+    return (f"mentions {word!r}", lambda v: bool(v) and word in v.lower())
 
 
 INTRO_PF = [
@@ -224,7 +246,7 @@ CASES = [
              A("Isso! E quais você acha que são as desvantagens desse estilo?"),
              H("talvez ficar lento se tiver muitos filtros?"),
          ],
-         {"topic": same_as(PF["topic"]), "subtopic": same_as(PF["subtopic"])}),
+         {"topic": same_as(PF["topic"]), "subtopic": NONE}),
 
     Case("topic", "answer mentioning a sub-aspect keeps anchor",
          LearningState(**PF, learning_progress="improving"),
@@ -233,7 +255,7 @@ CASES = [
              A("Isso! E um filtro precisa conhecer os vizinhos?"),
              H("não, os filtros são independentes e não compartilham estado entre si"),
          ],
-         {"topic": same_as(PF["topic"]), "subtopic": same_as(PF["subtopic"])}),
+         {"topic": same_as(PF["topic"]), "subtopic": NONE}),
 
     Case("topic", "student question on a detail keeps anchor",
          LearningState(**CS, learning_progress="stable"),
@@ -242,7 +264,7 @@ CASES = [
              A("Quem você acha que inicia a comunicação?"),
              H("o cliente. mas e se o servidor cair, o que acontece?"),
          ],
-         {"topic": same_as(CS["topic"]), "subtopic": same_as(CS["subtopic"])}),
+         {"topic": same_as(CS["topic"]), "subtopic": NONE}),
 
     Case("topic", "explicit switch changes anchor and resets progress",
          LearningState(**PF, learning_progress="mastered", comprehension_level="high"),
@@ -251,8 +273,35 @@ CASES = [
              A("Perfeito! Resumindo: filtros independentes ligados por pipes."),
              H("show. agora quero aprender sobre blackboard"),
          ],
-         {"subtopic": changed_from(PF["subtopic"]), "learning_progress": is_("stable"),
+         {"topic": changed_from(PF["topic"]), "learning_progress": is_("stable"),
           "current_difficulty": NONE}),
+
+    # ---------------- course ----------------
+    # The course is never the topic; no topic means none was named.
+    Case("course", "a concept question names the concept, not the course",
+         LearningState(),
+         [H("O que é uma árvore AVL?")],
+         {"topic": mentions("avl")}, config=EDB),
+
+    Case("course", "an exercise with no topic named has no topic",
+         LearningState(),
+         [H("Me passa um exercício para eu praticar.")],
+         {"topic": NONE, "intent": is_("practice")}, config=EDB),
+
+    Case("course", "reviewing the whole course has no topic",
+         LearningState(),
+         [H("Tenho prova em breve. Me ajuda a revisar os pontos principais?")],
+         {"topic": NONE, "intent": is_("exam_prep")}, config=EDB),
+
+    Case("course", "the answer to 'which topic?' is the topic",
+         LearningState(intent="practice"),
+         [
+             H("Me passa um exercício para eu praticar."),
+             A("Claro! Sobre qual assunto você quer praticar? Por exemplo: Heap e Heapsort ou Árvores AVL."),
+             H("heap"),
+         ],
+         {"topic": mentions("heap"), "intent": is_("practice")}, config=EDB,
+         teaching=TeachingState(exercise_topic_pending=True)),
 ]
 
 
@@ -262,12 +311,12 @@ CASES = [
 PLANNER_CASES = [
     ("asks to just be told -> refer",
      LearningState(**PF),
-     TeachingState(topic_anchor=(PF["topic"], PF["subtopic"]), stage="introduce"),
+     TeachingState(topic_anchor=(PF["topic"], None), stage="introduce"),
      INTRO_PF + [H("não quero adivinhar, só me fala direto o que é")],
      "refer"),
     ("answers guiding question -> stays guided",
      LearningState(**PF, learning_progress="improving"),
-     TeachingState(topic_anchor=(PF["topic"], PF["subtopic"]), stage="introduce"),
+     TeachingState(topic_anchor=(PF["topic"], None), stage="introduce"),
      INTRO_PF + [H("acho que os filtros processam os dados e os pipes levam pro próximo")],
      "check"),
 ]
@@ -292,10 +341,10 @@ def main():
         values = collections.defaultdict(list)
         for _ in range(runs):
             with contextlib.redirect_stdout(io.StringIO()):
-                out = update_tracking(
-                    {"messages": case.messages, "learning_state": case.previous},
-                    model=tracker,
-                )
+                state = {"messages": case.messages, "learning_state": case.previous}
+                if case.teaching is not None:
+                    state["teaching_state"] = case.teaching
+                out = update_tracking(state, model=tracker, config=case.config)
             ls = out["learning_state"]
             for field in case.checks:
                 values[field].append(getattr(ls, field))
@@ -310,7 +359,7 @@ def main():
                 failures.append((case, field, desc, values[field]))
 
     if not only or only == "planner":
-        config = TutorConfig(subject="Software Architecture")
+        config = SA
         for name, ls, ts, msgs, expected_stage in PLANNER_CASES:
             stages = []
             for _ in range(runs):

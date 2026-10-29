@@ -118,7 +118,7 @@ def route_after_planning(state: TutorState):
 def build_graph(config: TutorConfig, retriever, models) -> CompiledStateGraph:
     graph = StateGraph(TutorState)
 
-    graph.add_node("tracking", partial(update_tracking, model=models.tracking_llm))
+    graph.add_node("tracking", partial(update_tracking, model=models.tracking_llm, config=config))
     graph.add_node("greet", partial(greet, config=config, model=models.generation_llm))
     graph.add_node("list_topics", partial(list_topics, config=config))
     graph.add_node("planning", partial(plan_instruction, config=config, model=models.planning_llm))

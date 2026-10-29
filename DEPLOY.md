@@ -159,8 +159,8 @@ each student's profile:
 
 | Value | Behavior |
 |---|---|
-| `alternate` (default) | each student's conversations alternate **with** / **without** personalization; whether a student starts "with" or "without" is a stable hash of the enrollment ID, so half the class starts each way |
-| `always` | every conversation personalized (behavior before the study) |
+| `always` (default) | every conversation personalized — for testing the personalization itself |
+| `alternate` | the study design: each student's conversations alternate **with** / **without** personalization; whether a student starts "with" or "without" is a stable hash of the enrollment ID, so half the class starts each way. Set it when the study starts |
 | `off` | never personalized |
 
 "Without" only hides the profile from the tutor — the profiler keeps

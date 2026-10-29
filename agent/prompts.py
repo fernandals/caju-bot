@@ -24,8 +24,15 @@ CRITICAL RULES:
 
 WHAT TO TRACK:
 
-- topic: main subject being discussed
-- subtopic: specific concept within topic
+- topic: the concept of the course being studied - its name from the
+  course topic list (given below) when it falls under one. NEVER the
+  course itself: in a data structures course, "o que é uma árvore AVL?"
+  has topic "Árvores AVL", not the course's name. null while the student
+  has not named anything to study (asking which topics there are, asking
+  to review the whole course, asking for an exercise without saying on
+  what).
+- subtopic: a more specific part of the topic, only when the student
+  asks about one by name ("e as rotações?"); otherwise null
 - intent: student's current goal
 - comprehension_level: current understanding (low/medium/high)
 - learning_progress: how the student is moving RELATIVE to earlier turns
@@ -549,6 +556,15 @@ CLOSE_TOPIC_INSTRUCTIONS = (
     "Confirm plainly what they got right, recap the key takeaway in 1-2 "
     "sentences, grounded in the material, and close: offer a next topic "
     "from the course or an exercise." + _CITATION_REMINDER
+)
+
+# Replaces the stage block when an exercise is asked for with no topic
+# named (agent/teaching.exercise_turn).
+ASK_EXERCISE_TOPIC_INSTRUCTIONS = (
+    "The student asked for an exercise but did not say on which topic. "
+    "Do NOT pose an exercise yet and do NOT teach anything. In one or two "
+    "short sentences, ask which topic they want to practise, suggesting "
+    "two or three from the course list below. No citation markers."
 )
 
 # Appended in "check" with the judged verdict, so the reply agrees with it.

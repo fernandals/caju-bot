@@ -5,14 +5,14 @@
       "confirm": "Confirmar",
       "continue": "Continuar",
       "goBack": "Voltar",
-      "reset": "Repor",
+      "reset": "Redefinir",
       "submit": "Enviar"
     },
     "status": {
-      "loading": "A carregar...",
+      "loading": "Carregando...",
       "error": {
         "default": "Ocorreu um erro",
-        "serverConnection": "Não foi possível estabelecer ligação ao servidor"
+        "serverConnection": "Não foi possível conectar ao servidor"
       }
     }
   },
@@ -58,20 +58,20 @@
   },
   "chat": {
     "input": {
-      "placeholder": "Escreva a sua mensagem aqui...",
+      "placeholder": "Escreva sua mensagem aqui...",
       "actions": {
         "send": "Enviar mensagem",
         "stop": "Parar tarefa",
-        "attachFiles": "Anexar ficheiros"
+        "attachFiles": "Anexar arquivos"
       }
     },
     "favorites": {
-      "use": "Utilizar mensagem favorita",
+      "use": "Usar mensagem favorita",
       "headline": "Mensagens favoritas",
       "remove": "Remover favorito",
       "empty": {
-        "title": "Ainda não há prompts guardados",
-        "description": "Comece por enviar um prompt e marcá-lo com estrela, ou marque com estrela um prompt de conversas anteriores"
+        "title": "Ainda não há mensagens salvas",
+        "description": "Envie uma mensagem e marque-a com estrela, ou marque com estrela uma mensagem de conversas anteriores"
       }
     },
     "commands": {
@@ -82,29 +82,29 @@
     "speech": {
       "start": "Iniciar gravação",
       "stop": "Parar gravação",
-      "connecting": "A ligar"
+      "connecting": "Conectando"
     },
     "fileUpload": {
-      "dragDrop": "Arraste e largue ficheiros aqui",
-      "browse": "Procurar ficheiros",
+      "dragDrop": "Arraste e solte arquivos aqui",
+      "browse": "Procurar arquivos",
       "sizeLimit": "Limite:",
       "errors": {
-        "failed": "Erro ao carregar",
-        "cancelled": "Carregamento cancelado de"
+        "failed": "Falha no envio",
+        "cancelled": "Envio cancelado de"
       },
       "actions": {
-        "cancelUpload": "Cancelar carregamento",
+        "cancelUpload": "Cancelar envio",
         "removeAttachment": "Remover anexo"
       }
     },
     "messages": {
       "status": {
-        "using": "A utilizar",
-        "used": "Utilizado"
+        "using": "Usando",
+        "used": "Usado"
       },
       "actions": {
         "copy": {
-          "button": "Copiar para a área de transferência",
+          "button": "Copiar",
           "success": "Copiado!"
         }
       },
@@ -115,22 +115,22 @@
         "dialog": {
           "title": "Adicionar um comentário",
           "submit": "Enviar comentário",
-          "yourFeedback": "O seu comentário..."
+          "yourFeedback": "Seu comentário..."
         },
         "status": {
-          "updating": "A atualizar",
+          "updating": "Atualizando",
           "updated": "Comentário atualizado"
         }
       }
     },
     "history": {
       "title": "Últimas entradas",
-      "empty": "Está vazio...",
+      "empty": "Nada por aqui ainda...",
       "show": "Mostrar histórico"
     },
     "settings": {
-      "title": "Painel de configurações",
-      "customize": "Personalize aqui as configurações do seu chat"
+      "title": "Configurações",
+      "customize": "Personalize aqui as configurações do chat"
     },
     "watermark": "Os modelos de linguagem podem cometer erros. Verifique sempre informações importantes."
   },
@@ -138,8 +138,8 @@
     "sidebar": {
       "title": "Conversas anteriores",
       "filters": {
-        "search": "Pesquisar",
-        "placeholder": "Pesquisar conversas..."
+        "search": "Buscar",
+        "placeholder": "Buscar conversas..."
       },
       "timeframes": {
         "today": "Hoje",
@@ -157,40 +157,40 @@
       "untitled": "Conversa sem título",
       "menu": {
         "rename": "Renomear",
-        "share": "Partilhar",
-        "delete": "Eliminar"
+        "share": "Compartilhar",
+        "delete": "Excluir"
       },
       "actions": {
         "share": {
-          "title": "Partilhar ligação do chat",
-          "button": "Partilhar",
+          "title": "Compartilhar link da conversa",
+          "button": "Compartilhar",
           "status": {
-            "copied": "Ligação copiada",
-            "created": "Ligação de partilha criada!",
-            "unshared": "Partilha desativada para esta conversa"
+            "copied": "Link copiado",
+            "created": "Link de compartilhamento criado!",
+            "unshared": "Compartilhamento desativado para esta conversa"
           },
           "error": {
-            "create": "Erro ao criar ligação de partilha",
-            "unshare": "Erro ao desativar a partilha"
+            "create": "Erro ao criar o link de compartilhamento",
+            "unshare": "Erro ao desativar o compartilhamento"
           }
         },
         "delete": {
-          "title": "Confirmar eliminação",
-          "description": "Irá eliminar a conversa e todos os seus conteúdos. Esta ação não pode ser anulada.",
-          "success": "Chat eliminado",
-          "inProgress": "A eliminar chat"
+          "title": "Confirmar exclusão",
+          "description": "A conversa e todo o seu conteúdo serão excluídos. Esta ação não pode ser desfeita.",
+          "success": "Conversa excluída",
+          "inProgress": "Excluindo conversa"
         },
         "rename": {
           "title": "Renomear conversa",
-          "description": "Insira um novo nome para esta conversa",
+          "description": "Digite um novo nome para esta conversa",
           "form": {
             "name": {
               "label": "Nome",
-              "placeholder": "Insira o novo nome"
+              "placeholder": "Digite o novo nome"
             }
           },
           "success": "Conversa renomeada!",
-          "inProgress": "A renomear conversa"
+          "inProgress": "Renomeando conversa"
         }
       }
     }
@@ -208,8 +208,8 @@
     "newChat": {
       "button": "Novo chat",
       "dialog": {
-        "title": "Criar novo chat",
-        "description": "Isto irá apagar o histórico de chat atual. Tem a certeza de que pretende continuar?",
+        "title": "Nova conversa",
+        "description": "Isso vai limpar a conversa atual. Tem certeza de que quer continuar?",
         "tooltip": "Novo chat"
       }
     },
@@ -217,16 +217,16 @@
       "menu": {
         "settings": "Configurações",
         "settingsKey": "S",
-        "apiKeys": "Chaves API",
-        "logout": "Terminar sessão"
+        "apiKeys": "Chaves de API",
+        "logout": "Sair"
       }
     }
   },
   "apiKeys": {
-    "title": "Chaves API necessárias",
-    "description": "Para utilizar esta aplicação, são necessárias as seguintes chaves API. As chaves são guardadas localmente no seu dispositivo.",
+    "title": "Chaves de API necessárias",
+    "description": "Para usar este aplicativo, são necessárias as seguintes chaves de API. As chaves ficam salvas no seu dispositivo.",
     "success": {
-      "saved": "Guardado com sucesso"
+      "saved": "Salvo com sucesso"
     }
   },
   "alerts": {
@@ -248,12 +248,12 @@
   },
   "components": {
     "MultiSelectInput": {
-      "placeholder": "Selecionar..."
+      "placeholder": "Selecione..."
     },
     "DatePickerInput": {
       "placeholder": {
-        "single": "Escolher uma data",
-        "range": "Escolher um intervalo de datas"
+        "single": "Escolha uma data",
+        "range": "Escolha um intervalo de datas"
       }
     }
   }

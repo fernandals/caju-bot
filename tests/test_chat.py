@@ -1,16 +1,18 @@
 """
 The chat around the tutor: which path a message takes through the graph,
-the reply buttons, conversation titles, editing a message, resuming a
-conversation, and the enrollment check at login.
+the topic tracking, the reply buttons, conversation titles, editing a
+message, resuming a conversation, and the enrollment check at login.
 """
 
+import contextlib
+import io
 import json
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from agent.graph import is_smalltalk, is_topics_request, route_after_planning, route_after_tracking, route_start
-from agent.nodes import dialogue_window
+from agent.nodes import dialogue_window, update_tracking, without_course_topic
 from agent.state import AnswerPlan, LearningState, TeachingState, TutorConfig
 from agent.titler import MAX_TITLE_CHARS, clean_title
 from utils.chat_session import TUTOR_STATE_KEY, needs_title, restore_tutor_state, truncate_for_edit, tutor_state_snapshot
@@ -89,6 +91,58 @@ def test_topic_list_needs_an_outline():
 def test_retrieval_only_when_planned():
     assert route_after_planning({"answer_plan": AnswerPlan(needs_retrieval=True, strategy="guided_teaching", rationale="r")}) == "retrieve"
     assert route_after_planning({"answer_plan": AnswerPlan(needs_retrieval=False, strategy="direct_answer", rationale="r")}) == "generate_answer"
+
+
+# ---------------- tracking ----------------
+COURSE = "Estruturas de Dados Básicas II"
+
+
+@pytest.mark.parametrize(
+    "topic, subtopic, expected",
+    [
+        # The course named as the topic: the real one was in subtopic...
+        (COURSE, "Heap", ("Heap", None)),
+        ("estruturas de dados", "Árvore Binária de Busca", ("Árvore Binária de Busca", None)),
+        # ...or there was none.
+        (COURSE, None, (None, None)),
+        # A real topic is kept, course words in it or not.
+        ("Árvores AVL", "rotações", ("Árvores AVL", "rotações")),
+        ("Árvores B e Estruturas para Grandes Dados", None, ("Árvores B e Estruturas para Grandes Dados", None)),
+        (None, None, (None, None)),
+    ],
+)
+def test_the_course_is_never_the_topic(topic, subtopic, expected):
+    learning = without_course_topic(LearningState(topic=topic, subtopic=subtopic), COURSE)
+    assert (learning.topic, learning.subtopic) == expected
+
+
+class Tracker:
+    def __init__(self, result):
+        self.result, self.prompt = result, None
+
+    def with_structured_output(self, _):
+        return self
+
+    def invoke(self, prompt):
+        self.prompt = prompt
+        return self.result
+
+
+def test_tracking_knows_the_course_and_its_topics():
+    tracker = Tracker(LearningState(topic=COURSE, subtopic="Árvores AVL"))
+    config = TutorConfig(subject=COURSE, course_outline=["Heap e Heapsort", "Árvores AVL"])
+    with contextlib.redirect_stdout(io.StringIO()):
+        out = update_tracking(message("o que é uma árvore AVL?"), model=tracker, config=config)
+    assert COURSE in tracker.prompt and "- Heap e Heapsort" in tracker.prompt
+    assert (out["learning_state"].topic, out["learning_state"].subtopic) == ("Árvores AVL", None)
+
+
+def test_tracking_is_told_when_the_tutor_asked_the_exercise_topic():
+    tracker = Tracker(LearningState(topic="Heap"))
+    state = {**message("heap"), "teaching_state": TeachingState(exercise_topic_pending=True)}
+    with contextlib.redirect_stdout(io.StringIO()):
+        update_tracking(state, model=tracker)
+    assert "which topic the student wants an exercise on" in tracker.prompt
 
 
 # ---------------- reply buttons ----------------
