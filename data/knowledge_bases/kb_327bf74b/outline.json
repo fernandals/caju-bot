@@ -1,0 +1,17 @@
+{
+  "topics": [
+    "Introdução à Complexidade de Algoritmos",
+    "Complexidade Assintótica e Notação O",
+    "Equações de Recorrência",
+    "Complexidade Média e Análise Probabilística",
+    "Árvores: Conceitos e Representações",
+    "Árvore Binária de Busca",
+    "Heap e Heapsort",
+    "Conjuntos Disjuntos e Função de Ackermann",
+    "Dicionários e Conjuntos Dinâmicos",
+    "Árvores AVL (Balanceamento e Rotação)",
+    "Árvores Rubro-Negras e Balanceamento",
+    "Árvores B e Estruturas para Grandes Dados",
+    "Busca Digital e Árvores de Prefixo"
+  ]
+}
