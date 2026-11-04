@@ -18,7 +18,7 @@
   },
   "auth": {
     "login": {
-      "title": "Entre para acessar o Tutor",
+      "title": "Entre para acessar o CAJU Bot",
       "form": {
         "email": {
           "label": "Matrícula",

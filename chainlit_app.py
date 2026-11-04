@@ -15,9 +15,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.chat_pipeline import load_pipeline
 from agent.outline import cached_course_outline
-from agent.graph import is_topics_request
+from agent.graph import is_about_tutor, is_topics_request
 from agent.nodes import latest_student_question
 from agent.profiler import profile_student, worth_profiling
+from agent.prompts import TUTOR_NAME, TUTOR_NAME_MEANING
 from agent.state import StudentProfile, StyleTracker, TutorState
 from agent.style_tracking import choose_style, start_tracker
 from agent.teaching import is_course_review
@@ -114,9 +115,10 @@ README_PATH = Path("chainlit_pt-BR.md")
 
 def _render_readme(topics: list[str]) -> str:
     lines = [
-        f"# Tutor Virtual — {DISCIPLINE}",
+        f"# {TUTOR_NAME} — {DISCIPLINE}",
         "",
-        f"Este assistente ajuda você a estudar **{DISCIPLINE}**. Ele responde "
+        f"O **{TUTOR_NAME}** ({TUTOR_NAME_MEANING}) ajuda você a estudar "
+        f"**{DISCIPLINE}**. Ele responde "
         "às suas perguntas **com base no material da disciplina** "
         "disponibilizado pelo professor — não busca informações fora desse "
         "conteúdo.",
@@ -620,7 +622,10 @@ async def _send_welcome():
     # @cl.set_starters only renders while the thread has no messages, and
     # this greeting is a message.
     welcome = cl.Message(
-        content=f"{greeting}Tire suas dúvidas sobre **{DISCIPLINE}**.",
+        content=(
+            f"{greeting}Eu sou o **{TUTOR_NAME}**, seu {TUTOR_NAME_MEANING}. "
+            f"Tire suas dúvidas sobre **{DISCIPLINE}**."
+        ),
         actions=_actions(STARTERS),
     )
     await welcome.send()
@@ -1076,5 +1081,8 @@ async def on_message(message: cl.Message):
             # button's action name ("quick_reply") until a real question.
             # Still untitled, so that question replaces this name.
             await _rename_thread(TOPICS_THREAD_NAME)
+        elif greeted and not cl.user_session.get("titled") and is_about_tutor(message.content):
+            # Same for "quem é você?": a neutral name until a real question.
+            await _rename_thread(NEW_THREAD_NAME)
     finally:
         cl.user_session.set("busy", False)

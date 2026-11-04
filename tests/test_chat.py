@@ -11,8 +11,16 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from agent.graph import is_smalltalk, is_topics_request, route_after_planning, route_after_tracking, route_start
-from agent.nodes import dialogue_window, update_tracking, without_course_topic
+from agent.graph import (
+    is_about_tutor,
+    is_smalltalk,
+    is_topics_request,
+    route_after_planning,
+    route_after_tracking,
+    route_start,
+)
+from agent.nodes import about_tutor, dialogue_window, update_tracking, without_course_topic
+from agent.prompts import GENERATE_PROMPT, TUTOR_NAME
 from agent.state import AnswerPlan, LearningState, TeachingState, TutorConfig
 from agent.titler import MAX_TITLE_CHARS, clean_title
 from utils.chat_session import TUTOR_STATE_KEY, needs_title, restore_tutor_state, truncate_for_edit, tutor_state_snapshot
@@ -86,6 +94,42 @@ def test_topic_list_needs_an_outline():
     assert route_start(message(TOPICS.message), outline) == "list_topics"
     assert route_start(message(TOPICS.message), TutorConfig(subject="EDB2")) == "tracking"
     assert route_start(message("o que é uma AVL?"), outline) == "tracking"
+
+
+@pytest.mark.parametrize(
+    "text, about",
+    [
+        ("qual é o seu nome?", True),
+        ("Qual seu nome", True),
+        ("oi, qual é o seu nome?", True),
+        ("como você se chama?", True),
+        ("quem é você?", True),
+        ("quem é vc", True),
+        ("o que significa CAJU?", True),
+        ("o que é o caju bot?", True),
+        ("CAJU quer dizer o quê?", True),
+        ("o que você faz?", True),
+        ("você tem nome?", True),
+        ("qual é o nome da rotação dupla?", False),
+        ("quem inventou a árvore AVL?", False),
+        ("o que você acha da minha resposta?", False),
+        (None, False),
+    ],
+)
+def test_about_tutor_request(text, about):
+    assert is_about_tutor(text) is about
+
+
+def test_who_are_you_gets_the_introduction():
+    config = TutorConfig(subject="EDB2")
+    assert route_start(message("qual é o seu nome?"), config) == "about_tutor"
+    with contextlib.redirect_stdout(io.StringIO()):
+        out = about_tutor(message("qual é o seu nome?"), config=config)
+    # Not a pedagogical turn: no metrics row, no title, the arc untouched.
+    assert out["greeted"]
+    assert TUTOR_NAME in out["messages"][0].content and "EDB2" in out["messages"][0].content
+    # The model knows its name too, in the rest of the conversation.
+    assert TUTOR_NAME in GENERATE_PROMPT
 
 
 def test_retrieval_only_when_planned():
@@ -216,6 +260,7 @@ def test_buttons_saved_for_a_resumed_conversation():
         (STYLE_ACTION_NAME, True),
         ("Nova conversa", True),
         ("Conteúdos da disciplina", True),
+        ("quem é você?", True),
         ("quero entender o pipe filter", False),
     ],
 )

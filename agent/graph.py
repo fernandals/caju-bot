@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.nodes import (
+    about_tutor,
     assess_documents,
     generate_answer,
     greet,
@@ -68,6 +69,34 @@ def is_topics_request(text: str | None) -> bool:
     return bool(text) and bool(_TOPICS_RE.fullmatch(text.strip()))
 
 
+# "Qual é o seu nome?" / "quem é você?" / "o que significa CAJU?" -
+# answered with a fixed introduction (about_tutor). Through the teaching
+# pipeline it was a topic the material does not cover: "essa pergunta não
+# está relacionada ao curso". Anchored to the whole message, like the
+# topics question; a greeting in front is fine.
+_YOU = r"(?:voc[êe]|vc|tu)"
+_ABOUT_TUTOR_RE = re.compile(
+    r"(?:(?:oi+|ol[áa]|e\s+a[íi]|e)[\s,!.]+)?"
+    r"(?:"
+    r"(?:qual\s+(?:[ée]\s+)?(?:o\s+)?)?(?:seu|teu)\s+nome"
+    r"|como\s+(?:[ée]\s+que\s+)?" + _YOU + r"\s+se\s+chama"
+    r"|" + _YOU + r"\s+tem\s+(?:um\s+)?nome"
+    r"|quem\s+(?:[ée]\s+)?(?:que\s+)?(?:[ée]\s+)?(?:" + _YOU + r"|o\s+caju(?:\s*bot)?)"
+    r"|o\s+que\s+(?:[ée]\s+)?(?:o\s+)?caju(?:\s*bot)?"
+    r"|o\s+que\s+(?:significa|quer\s+dizer)\s+(?:o\s+)?caju(?:\s*bot)?"
+    r"|caju(?:\s*bot)?\s+(?:significa|quer\s+dizer)\s+o\s+qu[eê]"
+    r"|o\s+que\s+" + _YOU + r"\s+(?:[ée]|faz)"
+    r")"
+    r"[\s?!.]*",
+    re.IGNORECASE,
+)
+
+
+def is_about_tutor(text: str | None) -> bool:
+    """Whole message asks who the tutor is / what its name means."""
+    return bool(text) and bool(_ABOUT_TUTOR_RE.fullmatch(text.strip()))
+
+
 def is_smalltalk(text: str | None) -> bool:
     """Whole message is only a greeting / acknowledgement / sign-off."""
     return bool(text) and bool(_SMALLTALK_RE.match(text.strip()))
@@ -80,10 +109,13 @@ def route_start(state: TutorState, config: TutorConfig):
     vague "the whole course" topic in the learning state. Without an
     outline it goes through the normal pipeline.
     """
-    if config.course_outline and is_topics_request(
-        latest_student_question(state["messages"])
-    ):
+    question = latest_student_question(state["messages"])
+
+    if config.course_outline and is_topics_request(question):
         return "list_topics"
+
+    if is_about_tutor(question):
+        return "about_tutor"
 
     return "tracking"
 
@@ -121,6 +153,7 @@ def build_graph(config: TutorConfig, retriever, models) -> CompiledStateGraph:
     graph.add_node("tracking", partial(update_tracking, model=models.tracking_llm, config=config))
     graph.add_node("greet", partial(greet, config=config, model=models.generation_llm))
     graph.add_node("list_topics", partial(list_topics, config=config))
+    graph.add_node("about_tutor", partial(about_tutor, config=config))
     graph.add_node("planning", partial(plan_instruction, config=config, model=models.planning_llm))
     graph.add_node("retrieve", partial(retrieve_documents, retriever=retriever, config=config))
     graph.add_node("assess_documents", partial(assess_documents, config=config, model=models.grading_llm))
@@ -139,11 +172,13 @@ def build_graph(config: TutorConfig, retriever, models) -> CompiledStateGraph:
         partial(route_start, config=config),
         {
             "list_topics": "list_topics",
+            "about_tutor": "about_tutor",
             "tracking": "tracking",
         },
     )
 
     graph.add_edge("list_topics", END)
+    graph.add_edge("about_tutor", END)
 
     graph.add_conditional_edges(
         "tracking",

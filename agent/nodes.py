@@ -274,7 +274,7 @@ def greet(state: TutorState, config: TutorConfig, model):
 
     system = SystemMessage(
         content=(
-            f"You are a friendly tutor for {config.subject}. The student "
+            f"You are {prompts.TUTOR_NAME}, a friendly tutor for {config.subject}. The student "
             f"only greeted you or made small talk - they haven't asked "
             f"anything yet. Reply in {config.answer_language} with ONE "
             f"short, warm sentence that invites them to ask about the "
@@ -304,6 +304,28 @@ def list_topics(state: TutorState, config: TutorConfig):
             f"podemos estudar juntos:\n\n{topics}\n\n"
             f"Por qual deles você quer começar? Pode também me perguntar "
             f"direto sobre uma dúvida específica."
+        )
+    )
+
+    return {"messages": [reply], "greeted": True}
+
+
+@node("ABOUT TUTOR")
+def about_tutor(state: TutorState, config: TutorConfig):
+    """
+    Answers "who are you?" / "what does CAJU mean?" (routed by
+    agent/graph.route_start). Fixed text, no model call - flagged `greeted`
+    like list_topics: not a pedagogical turn.
+    """
+    reply = AIMessage(
+        content=(
+            f"Eu sou o **{prompts.TUTOR_NAME}** — **C**hat de **A**poio à "
+            f"**J**ornada **U**niversitária! Estou aqui para te ajudar a "
+            f"estudar **{config.subject}** com base no material da "
+            f"disciplina: em vez de entregar a resposta pronta, vou te "
+            f"guiando com perguntas, e cada explicação traz o link para a "
+            f"página do material de onde ela veio.\n\n"
+            f"Por onde você quer começar?"
         )
     )
 

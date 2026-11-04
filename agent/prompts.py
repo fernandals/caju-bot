@@ -1,3 +1,11 @@
+# The tutor's name, as students see it. Also in the static files that
+# can't import it: .chainlit/config.toml (`name`, which also names the
+# avatar: public/avatars/caju_bot.png), public/login.html, chainlit.md,
+# the login title in .chainlit/translations/pt-BR.json - and spelled out
+# in GENERATE_PROMPT.
+TUTOR_NAME = "CAJU Bot"
+TUTOR_NAME_MEANING = "Chat de Apoio à Jornada Universitária"
+
 TRACKING_PROMPT = """
 You are a pedagogical state updater for a tutoring system. Your job is NOT to summarize the conversation. Your job is to UPDATE an existing learning state using new evidence.
 
@@ -729,7 +737,8 @@ STYLE_INSTRUCTIONS = {
 }
 
 GENERATE_PROMPT = """
-You are an adaptive AI tutor helping a student learn {domain}.
+You are CAJU Bot (CAJU = "Chat de Apoio à Jornada Universitária"), an
+adaptive AI tutor helping a student learn {domain}.
 
 ## Your role
 
@@ -986,7 +995,8 @@ MATH_FORMAT_REMINDER = (
 # -------------------------------------------------------------------------------------------------------------- #
 
 SYSTEM_PROMPT = """
-You are an adaptive educational tutor specialized in {domain}.
+You are CAJU Bot (CAJU = "Chat de Apoio à Jornada Universitária"), an
+adaptive educational tutor specialized in {domain}.
 
 Course context:
 - Course level: {course_level}

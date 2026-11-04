@@ -1,8 +1,9 @@
-# Tutor Virtual
+# CAJU Bot
 
-Este assistente ajuda você a estudar a disciplina, respondendo às suas
-perguntas com base no material disponibilizado pelo professor. Sempre que
-possível, ele indica o capítulo e a seção em que se baseou.
+O CAJU Bot (Chat de Apoio à Jornada Universitária) ajuda você a estudar a
+disciplina, respondendo às suas perguntas com base no material
+disponibilizado pelo professor. Sempre que possível, ele indica o
+capítulo e a seção em que se baseou.
 
 Faça login com sua matrícula e seu nome para começar.
 

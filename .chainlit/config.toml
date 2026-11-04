@@ -99,8 +99,9 @@ reaction_on_message_received = false
     allowed_executables = [ "npx", "uvx" ]
 
 [UI]
-# Name of the assistant.
-name = "Tutor Virtual"
+# Name of the assistant (agent/prompts.TUTOR_NAME). Also picks its
+# avatar: public/avatars/caju_bot.png (lowercase, spaces as "_").
+name = "CAJU Bot"
 
 # default_theme = "dark"
 
@@ -123,7 +124,7 @@ chat_settings_location = "sidebar"
 confirm_new_chat = false
 
 # Description of the assistant. This is used for HTML tags.
-# description = ""
+description = "CAJU Bot — Chat de Apoio à Jornada Universitária"
 
 # Chain of Thought (CoT) display mode. Can be "hidden", "tool_call" or "full".
 # Hidden: intermediate steps would show as "Utilizando <step>..."; the

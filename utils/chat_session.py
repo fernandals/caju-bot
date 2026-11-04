@@ -7,7 +7,7 @@ knowledge base at import time).
 import json
 import logging
 
-from agent.graph import is_smalltalk
+from agent.graph import is_about_tutor, is_smalltalk
 from agent.state import LearningState, StudentProfile, TeachingState
 from utils.quick_replies import ACTION_NAME, STYLE_ACTION_NAME
 
@@ -51,12 +51,14 @@ def needs_title(name: str | None) -> bool:
     Chainlit names a thread after its first interaction: the raw first
     message, or the action name if it began with a button click (a quick
     reply, or the first-conversation style question). Those
-    (and a bare greeting) are worth replacing with a generated title.
+    (and a bare greeting, or "quem é você?") are worth replacing with a
+    generated title.
     """
     return (
         not name
         or name in (ACTION_NAME, STYLE_ACTION_NAME, NEW_THREAD_NAME, TOPICS_THREAD_NAME)
         or is_smalltalk(name)
+        or is_about_tutor(name)
     )
 
 
