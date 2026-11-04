@@ -92,24 +92,29 @@ docker run -d \
 
 ## Deploying to Railway (instead of plain Docker)
 
-Railway builds this same Dockerfile. Deploy from the repo root with:
+Railway builds this same Dockerfile straight from the GitHub repo: every
+push to `main` redeploys. `railway.toml` pins the Dockerfile builder, so
+Railway doesn't try to guess a Python build.
 
-```
-railway up --no-gitignore
-```
+The build only sees what's **versioned** — that's why `.gitignore` lets
+`data/knowledge_bases/` and `data/roster.txt` through while ignoring the
+rest of `data/`. Push the course's knowledge base and roster to `main`
+before the first deploy, or `COPY` fails with
+`"/data/roster.txt": not found`.
 
-**`--no-gitignore` is required.** `railway up` respects `.gitignore`,
-which excludes `data/` wholesale (the vector store is rebuilt locally,
-not versioned) — so without the flag `data/knowledge_bases/` and
-`data/roster.txt` never reach the build context and `COPY` fails with
-`"/data/roster.txt": not found`. With the flag, `.railwayignore` is the
-single source of truth for what to exclude (it already drops `venv/`,
-`.env`, `data/chats/`, `.files/`, `pdfs/`, etc.).
+One-time setup in the Railway dashboard:
+
+1. **New service → GitHub Repo**, pick this repository and the `main`
+   branch (the first time, Railway asks to install its GitHub app and to
+   be given access to the repo).
+2. **Variables**: `OPENAI_API_KEY` and `CHAINLIT_AUTH_SECRET` (required).
+   Don't set `PORT` — Railway injects it and the container listens on it.
+3. **Volume**: right-click the service → *Attach volume*, mount path
+   `/app/data/chats`.
+4. **Networking → Generate Domain** for the public URL.
 
 The volume must be mounted at `/app/data/chats` (same reasoning as the
-`-v` note above). `OPENAI_API_KEY` and `CHAINLIT_AUTH_SECRET` are set as
-service variables in the Railway dashboard, not passed on the command
-line. The model/timeout knobs (`GENERATION_MODEL`, `PROFILER_MODEL`,
+`-v` note above). The model/timeout knobs (`GENERATION_MODEL`, `PROFILER_MODEL`,
 `MODEL_TIMEOUT`, …) are optional service variables — see
 `.env.example`/README for defaults.
 

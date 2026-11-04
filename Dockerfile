@@ -48,4 +48,7 @@ RUN mkdir -p data/chats
 
 EXPOSE 8501
 
-CMD ["chainlit", "run", "chainlit_app.py", "--host", "0.0.0.0", "--port", "8501", "--headless"]
+# Railway injects PORT and routes the public domain to it; plain Docker
+# falls back to 8501. Shell form so ${PORT} expands; exec keeps chainlit
+# as PID 1 so it gets the stop signal on redeploys.
+CMD exec chainlit run chainlit_app.py --host 0.0.0.0 --port "${PORT:-8501}" --headless
