@@ -138,6 +138,23 @@ material: re-run step 1 to rebuild the knowledge base (or add PDFs and
 recreate it), rebuild the image, and redeploy. Existing chat history in
 the volume is untouched by this since it's stored separately.
 
+The knowledge base is versioned (a GitHub deploy builds from it), but
+Chroma rewrites its files whenever the app opens them - so running the
+app locally showed `chroma.sqlite3` as modified, ready to be committed by
+mistake. Git is told to ignore those local changes; the flag lives in
+your checkout, not in the repo, so set it once per clone:
+
+```
+git ls-files -z data/knowledge_bases | grep -z /chroma/ | xargs -0 git update-index --skip-worktree
+```
+
+When you rebuild the knowledge base on purpose, lift it before
+committing (and set it again after):
+
+```
+git ls-files -z data/knowledge_bases | grep -z /chroma/ | xargs -0 git update-index --no-skip-worktree
+```
+
 ## Class metrics (on demand)
 
 The student app records one row per conversation turn — topic,
