@@ -1,13 +1,17 @@
 // The app's front-end tweaks to Chainlit, loaded through custom_js in
 // .chainlit/config.toml (one file: Chainlit loads a single script).
 
+// Browsers keep images cached (no cache headers from Chainlit): bump this
+// whenever public/favicon.png, public/tutor.png or login.html change.
+var ASSET_VERSION = "2026-11-04";
+
 // ---------------- LOGIN PAGE ----------------
 // Chainlit's login screen -> the app's own (public/login.html). Chainlit
 // routes to /login itself: on a first visit, after logging out, or when
 // the session expires - including in-page navigations, hence the
 // history hooks. Runs before the page renders, so its form never shows.
 (function () {
-  var LOGIN_PAGE = "/public/login.html";
+  var LOGIN_PAGE = "/public/login.html?v=" + ASSET_VERSION;
 
   function check() {
     if (window.location.pathname.replace(/\/+$/, "") === "/login") {
@@ -70,4 +74,19 @@
       close();
     }
   }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+})();
+
+// ---------------- FAVICON ----------------
+// Chainlit's page links a bare "/favicon", which the browser kept showing
+// from cache after the icon changed. Point it at the current version.
+(function () {
+  function update() {
+    var link = document.querySelector('link[rel="icon"]');
+    if (link && link.getAttribute("href") === "/favicon") {
+      link.setAttribute("href", "/favicon?v=" + ASSET_VERSION);
+    }
+  }
+
+  update();
+  document.addEventListener("DOMContentLoaded", update);
 })();
