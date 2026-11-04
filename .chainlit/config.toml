@@ -185,5 +185,14 @@ default_avatar_file_url = ""
 #     url = "https://github.com/Chainlit/chainlit/issues"
 #     target = "_blank" (default)  # Optional: "_self", "_parent", "_top".
 
+# The testers' feedback form, at hand when they finish (Google Forms).
+# The icon is a plain <img>, so it can't follow the theme: a mid grey
+# that reads on both.
+[[UI.header_links]]
+    name = "Responder o formulário de avaliação"
+    display_name = "Avaliar o CAJU"
+    icon_url = "/public/feedback.svg"
+    url = "https://docs.google.com/forms/d/e/1FAIpQLScMGSmztcTnPAWThLiuQR79SImfPG87SVRh4ZCO8hY5d0egtA/viewform"
+
 [meta]
 generated_by = "2.11.1"

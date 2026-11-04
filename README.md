@@ -190,6 +190,11 @@ Tudo em `public/`, carregado pelo `.chainlit/config.toml`:
 O seletor de estilo fica no painel de Configurações do Chainlit, no
 cabeçalho (`chat_settings_location = "sidebar"`).
 
+No cabeçalho também fica o botão **Avaliar o CAJU**, que abre o
+formulário de avaliação dos testadores (Google Forms) — um
+`[[UI.header_links]]` no `.chainlit/config.toml`, com o ícone
+`feedback.svg`. Tire o bloco quando os testes acabarem.
+
 O navegador guarda esses arquivos em cache: ao mudar `style.css` ou
 `app.js`, troque o `?v=` deles no `.chainlit/config.toml`.
 
