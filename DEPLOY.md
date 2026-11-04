@@ -240,7 +240,7 @@ with `railway volume files ... download /student_profiles.db ...` if you
 need to inspect or reset it.
 
 **Easiest — the helper script.** From the repo root, with the Railway
-project linked (`railway status` should show the `langchain-rag`
+project linked (`railway status` should show the `caju-bot`
 service):
 
 ```
@@ -280,8 +280,8 @@ Then, from the linked project directory (the volume is mounted *at*
 `/app/data/chats`, so inside the volume the file sits at the root):
 
 ```
-railway volume files --volume langchain-rag-volume list /
-railway volume files --volume langchain-rag-volume download /metrics.db ./data/chats/metrics.db --overwrite
+railway volume files --volume caju-bot-volume list /
+railway volume files --volume caju-bot-volume download /metrics.db ./data/chats/metrics.db --overwrite
 ```
 
 No SSH key set up? The Railway dashboard also has a volume file browser

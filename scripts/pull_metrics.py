@@ -13,7 +13,7 @@ see DEPLOY.md):
     python -m scripts.pull_metrics
 
 Options:
-    --volume NAME   Railway volume name (default: langchain-rag-volume)
+    --volume NAME   Railway volume name (default: caju-bot-volume)
     --dest PATH     Local file to write (default: data/chats/metrics.db)
     --chainlit      Also pull chainlit.db (chat history + the students'
                     👍/👎, used by the personalization study) next to it
@@ -30,7 +30,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEFAULT_VOLUME = "langchain-rag-volume"
+DEFAULT_VOLUME = "caju-bot-volume"
 DEFAULT_DEST = Path("data/chats/metrics.db")
 
 
