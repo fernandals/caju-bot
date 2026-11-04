@@ -93,8 +93,10 @@ docker run -d \
 ## Deploying to Railway (instead of plain Docker)
 
 Railway builds this same Dockerfile straight from the GitHub repo: every
-push to `main` redeploys. `railway.toml` pins the Dockerfile builder, so
-Railway doesn't try to guess a Python build.
+push to `main` redeploys. The service settings live in the Railway
+dashboard, not in the repo: Railway's Config as Code (`railway.toml`) is
+deprecated and new services can no longer opt in, so there is no config
+file here on purpose.
 
 The build only sees what's **versioned** — that's why `.gitignore` lets
 `data/knowledge_bases/` and `data/roster.txt` through while ignoring the
@@ -111,7 +113,24 @@ One-time setup in the Railway dashboard:
    Don't set `PORT` — Railway injects it and the container listens on it.
 3. **Volume**: right-click the service → *Attach volume*, mount path
    `/app/data/chats`.
-4. **Networking → Generate Domain** for the public URL.
+4. **Networking → Generate Domain** (HTTP) for the public URL. Railway
+   detects the port on its own; if it asks, it's `8501`.
+5. **Settings**:
+   - *Build → Builder*: **Dockerfile**. Railpack, the default, would
+     guess the start command and pick the wrong app (`app.py`/`main.py`).
+     Leave *Custom Build Command*, *Start Command* and the pre-deploy step
+     empty: the Dockerfile's `CMD` already starts Chainlit on `PORT`.
+   - *Regions & Replicas*: **US East**, **1 replica**. The chats,
+     profiles and metrics are SQLite files on the volume, and a volume
+     attaches to a single replica; Chainlit sessions also live in that
+     one process's memory.
+   - *Healthcheck Path*: `/`, so a build that can't start shows up as a
+     failed deploy instead of a live but broken one.
+   - *Restart Policy*: **On Failure**, 5 retries.
+   - Leave *Serverless*, *CDN Caching*, *Cron Schedule* and *Wait for CI*
+     off. Serverless makes the first visitor wait for a cold start, CDN
+     caching can serve stale or someone else's pages, and there's no
+     GitHub Actions workflow for *Wait for CI* to wait on.
 
 The volume must be mounted at `/app/data/chats` (same reasoning as the
 `-v` note above). The model/timeout knobs (`GENERATION_MODEL`, `PROFILER_MODEL`,
