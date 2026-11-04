@@ -1,6 +1,6 @@
-# CAJU Bot
+# CAJU
 
-O CAJU Bot (Chat de Apoio à Jornada Universitária) ajuda você a estudar a
+O CAJU (Chat de Apoio à Jornada Universitária) ajuda você a estudar a
 disciplina, respondendo às suas perguntas com base no material
 disponibilizado pelo professor. Sempre que possível, ele indica o
 capítulo e a seção em que se baseou.

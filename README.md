@@ -1,6 +1,6 @@
-# CAJU Bot
+# CAJU
 
-**CAJU Bot** (Chat de Apoio à Jornada Universitária): tutor de
+**CAJU** (Chat de Apoio à Jornada Universitária): tutor de
 disciplina baseado em RAG (LangChain + LangGraph). Responde
 dúvidas de alunos usando exclusivamente o material fornecido pelo professor,
 com abordagem pedagógica — guia o raciocínio com perguntas em vez de
@@ -183,7 +183,7 @@ Tudo em `public/`, carregado pelo `.chainlit/config.toml`:
 - `app.js` — leva o Chainlit até essa página e só abre o PDF de uma
   citação quando o aluno clica nela;
 - `style.css` — citações legíveis e os três pontinhos de "pensando";
-- `avatars/caju_bot.png` (ícone das respostas — o nome vem de
+- `avatars/caju.png` (ícone das respostas — o nome vem de
   `name` na configuração), `favicon.png` (aba do navegador) e
   `tutor.png` (página de login). Para trocar, substitua mantendo os nomes.
 
