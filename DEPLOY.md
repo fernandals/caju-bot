@@ -144,14 +144,21 @@ Repeat steps 1-4 per course: a fresh knowledge base, a fresh
 (`-p 8502:8501`, `-p 8503:8501`, ...). Each is a fully independent
 container — there's no shared state or shared roster between them.
 
+On Railway, a deploy builds whatever `data/knowledge_bases/` and
+`data/roster.txt` hold on the deployed branch, and that must be exactly
+one course. So each course needs its own branch (or repository) holding
+that course's knowledge base and roster, and its own Railway service
+pointed at it, with its own variables and volume.
+
 ## Reusing a deployment (and its volume) for a different course
 
 If you rebuild the image with a different course and deploy it onto the
 same volume, students' stored profiles carry over only what describes the
 learner (explanation style and its arc record, how they respond to
-guiding questions, frustration tendency). The topic lists and the tutor note
-belong to a course: they are cleared the first time the profile is loaded
-under the new course. Conversations are tagged with their course, and the
+guiding questions, frustration tendency, prior knowledge from outside the
+course). What belongs to a course — the solid/shaky topic lists, the
+misconceptions, what clicked, and the tutor note — is cleared the first
+time the profile is loaded under the new course. Conversations are tagged with their course, and the
 profiler only reads conversations from the current one. The study panel
 and `scripts.export_study --discipline` also compare one course at a time.
 
@@ -159,8 +166,10 @@ and `scripts.export_study --discipline` also compare one course at a time.
 
 There's no live "add a PDF" flow in the container. To update the
 material: re-run step 1 to rebuild the knowledge base (or add PDFs and
-recreate it), rebuild the image, and redeploy. Existing chat history in
-the volume is untouched by this since it's stored separately.
+recreate it), then rebuild the image and redeploy — on Railway, commit
+the new knowledge base (lifting the skip-worktree flag below first) and
+push to `main`. Existing chat history in the volume is untouched by this
+since it's stored separately.
 
 The knowledge base is versioned (a GitHub deploy builds from it), but
 Chroma rewrites its files whenever the app opens them - so running the
@@ -193,6 +202,11 @@ and the id of the tutor's reply (to join the 👍/👎 stored in
 the login name is free text. Rows written before that date keep NULLs in
 these columns; the schema is migrated in place on boot.
 
+The file is created on first boot and lives on the volume, so it survives
+redeploys and restarts. It is **not** in the container image — only the
+code that writes it is. Pull the file whenever you want to look, then
+open it in the local app (see "Pulling the files" below).
+
 ### Personalization study
 
 `PERSONALIZATION_MODE` (service variable) decides whether the tutor uses
@@ -222,22 +236,21 @@ writes `data/study/sessions.csv` (one row per conversation, with its
 outcomes), `arms.csv` and `paired.csv`. These contain enrollment IDs —
 keep them out of anything you publish without anonymizing.
 
-The file is created on first boot and lives on the volume, so it survives
-redeploys and restarts. It is **not** in the container image — only the
-code that writes it is. Pull the file whenever you want to look, then
-open it in the local app.
+### Student profiles
 
 The same volume also holds `student_profiles.db` — the per-student
-learning profile the tutor uses to personalize itself. Unlike
-`metrics.db`, this one **is** identifiable (keyed by enrollment ID); it
-stores only slow-moving learning-style traits and a short free-text note,
-never transcripts. It's refreshed once per session by a model that reads
+learning profile the tutor uses to personalize itself. Like `metrics.db`,
+it is identifiable (keyed by enrollment ID); it stores only slow-moving
+learning traits, topic lists and a short free-text note, never
+transcripts. It's refreshed once per session by a model that reads
 the student's previous conversation. The same file holds
 `style_trackers`: each student's explanation style (step by step,
 examples, exercises) and how their guided arcs went in each, updated by
 code after each turn (`agent/style_tracking.py`). There's no viewer for it — pull it
-with `railway volume files ... download /student_profiles.db ...` if you
-need to inspect or reset it.
+with `railway volume files ... download /student_profiles.db ...` (see
+below) if you need to inspect or reset it.
+
+### Pulling the files
 
 **Easiest — the helper script.** From the repo root, with the Railway
 project linked (`railway status` should show the `caju-bot`

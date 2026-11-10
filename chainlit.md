@@ -2,11 +2,8 @@
 
 O CAJU (Chat de Apoio à Jornada Universitária) ajuda você a estudar a
 disciplina, respondendo às suas perguntas com base no material
-disponibilizado pelo professor. Sempre que possível, ele indica o
-capítulo e a seção em que se baseou.
+disponibilizado pelo professor. Cada resposta traz links para as páginas
+do material em que se baseou: clique em um deles para abrir o PDF e
+conferir na fonte.
 
 Faça login com sua matrícula e seu nome para começar.
-
-> Esta página é gerada automaticamente a partir da disciplina de cada
-> container (ver `chainlit_pt-BR.md`); este texto é apenas o conteúdo
-> padrão caso a geração falhe.

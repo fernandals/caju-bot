@@ -23,7 +23,9 @@ O projeto tem duas aplicações separadas:
 
 Por trás dos dois, o mesmo agente: um grafo LangGraph (`agent/graph.py`).
 Um pedido de lista de assuntos é respondido direto, a partir da lista de
-tópicos da disciplina (`agent/outline.py`). Os demais turnos passam por
+tópicos da disciplina (`agent/outline.py`), e "quem é você?" / "o que
+significa CAJU?" recebe uma apresentação fixa (`about_tutor`), também sem
+chamada de modelo. Os demais turnos passam por
 `tracking → planning → retrieve → assess_documents → generate_answer`, e
 cumprimentos e conversa fiada pegam um atalho (`greet`) depois do
 tracking. O agente mantém um `LearningState` do aluno entre turnos e
@@ -46,7 +48,10 @@ antes de o tutor escrever. Uma resposta correta fecha o tópico (a partir
 da 2ª resposta do arco, ou logo na 1ª depois de uma explicação ou num
 exercício); nas outras, o tutor recebe o veredito e responde de acordo.
 Quem diz que tem prova recebe a explicação direto, uma vez por tópico;
-depois disso as respostas são avaliadas como as de qualquer aluno.
+depois disso as respostas são avaliadas como as de qualquer aluno. Um
+assunto novo sobre o qual o material não traz nada não é ensinado: o
+tutor diz que não encontrou no material (ou que é de outra área) e sugere
+assuntos da disciplina.
 
 Além das explicações guiadas, o tutor:
 - monta um **roteiro de revisão da disciplina inteira**, com citações para
@@ -137,6 +142,15 @@ autorizadas):
 chainlit run chainlit_app.py -w --port 8501
 ```
 
+**Testar o agente no terminal**, sem UI e sem perfil de aluno: `main.py`
+exige `DISCIPLINE` com o nome de uma disciplina em
+`data/knowledge_bases/` (o nome dado ao criar a base) e sai com um aviso
+se ela não estiver definida:
+
+```bash
+DISCIPLINE="<nome da disciplina>" python main.py
+```
+
 **Avaliar a busca** de uma disciplina — por exemplo, antes e depois de
 mudar a ingestão. Gera uma vez um conjunto de perguntas a partir dos PDFs
 e compara bases: a atual e uma gerada com `--out-dir` numa pasta que o
@@ -161,6 +175,7 @@ pytest
 |---|---|---|---|
 | `OPENAI_API_KEY` | sim | — | LLMs e embeddings |
 | `CHAINLIT_AUTH_SECRET` | sim (app do aluno) | — | assinatura do login; gerar com `chainlit create-secret` |
+| `DISCIPLINE` | sim (só `main.py`) | — | nome da disciplina que a CLI carrega; o app do aluno não usa (pega a única base em `data/knowledge_bases/`) |
 | `ROSTER_PATH` | não | `data/roster.txt` | lista de matrículas autorizadas |
 | `EMBED_MODEL` | não | `text-embedding-3-large` | modelo de embedding |
 | `GENERATION_MODEL` / `PLANNING_MODEL` / `TRACKING_MODEL` / `GRADING_MODEL` | não | ver `agent/chat_pipeline.py` | um modelo por nó do grafo |
@@ -185,7 +200,8 @@ Tudo em `public/`, carregado pelo `.chainlit/config.toml`:
 - `style.css` — citações legíveis e os três pontinhos de "pensando";
 - `avatars/caju.png` (ícone das respostas — o nome vem de
   `name` na configuração), `favicon.png` (aba do navegador) e
-  `tutor.png` (página de login). Para trocar, substitua mantendo os nomes.
+  `tutor.png` (página de login). Para trocar, substitua mantendo os nomes
+  (e troque a versão, abaixo).
 
 O seletor de estilo fica no painel de Configurações do Chainlit, no
 cabeçalho (`chat_settings_location = "sidebar"`).
@@ -195,8 +211,15 @@ formulário de avaliação dos testadores (Google Forms) — um
 `[[UI.header_links]]` no `.chainlit/config.toml`, com o ícone
 `feedback.svg`. Tire o bloco quando os testes acabarem.
 
-O navegador guarda esses arquivos em cache: ao mudar `style.css` ou
-`app.js`, troque o `?v=` deles no `.chainlit/config.toml`.
+O navegador guarda esses arquivos em cache (o Chainlit não manda
+cabeçalhos de cache), então cada um é carregado com um `?v=` que precisa
+mudar junto com ele:
+
+- `style.css` ou `app.js` → o `?v=` deles no `.chainlit/config.toml`;
+- `favicon.png`, `tutor.png` ou `login.html` → `ASSET_VERSION` no
+  início do `public/app.js` **e** os dois `?v=` dentro do
+  `public/login.html` (favicon e imagem); como isso muda o `app.js`,
+  troque também o `?v=` dele no `.chainlit/config.toml`.
 
 ## Deploy
 

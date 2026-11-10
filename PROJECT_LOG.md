@@ -1,4 +1,4 @@
-# Project Log — Agente  Educacional
+# Project Log — CAJU (Agente Educacional)
 
 ## 🎯 Objetivo Atual
 Construir um agente educacional que atue como **monitor inteligente de uma disciplina**, capaz de:
@@ -889,3 +889,82 @@ saíram dessa revisão.
 - Rodar `RUNS=3 python -m evals.tracking_eval` e repetir as conversas
   roteirizadas.
 - Nome do app e ícone; o tutor saber o próprio nome.
+
+---
+
+## 📅 Data
+- **2026-10-27 a 2026-11-04** (CAJU, deploy pelo GitHub, e ajustes que ficaram fora dos logs anteriores)
+
+### 📌 Status do Projeto
+O tutor ganhou nome — **CAJU** (Chat de Apoio à Jornada Universitária)
+— e o deploy no Railway passou a sair do GitHub. Entram aqui também três
+correções de 2026-10-27 que não chegaram ao log daquele dia.
+
+### ✅ Mudanças
+**Ensino** (2026-10-27)
+- **Tópico fecha só com a ideia central**: o `JUDGE_PROMPT` ganhou uma
+  segunda pergunta, separada do veredito, `shows_core_idea` — as
+  respostas do aluno, juntas, mostram o que o conceito é e para que serve
+  (ou aplicam ao caso)? Acertar um passo pequeno ou decifrar o nome não
+  basta.
+- **Pedido explícito de exercício é sempre exercício**
+  (`teaching.is_exercise_request`: "me passa um exercício", "quero
+  praticar"). Antes o planner respondia o próprio botão "Quero praticar"
+  com ensino guiado, e um exercício não marcado como tal não era corrigido
+  como tentativa. Novo `TeachingState.exercise_requested`.
+- **Assunto fora do material não é ensinado**: um tópico novo em que a
+  busca não traz nenhum trecho aprovado vira o estágio `not_covered`. O
+  tutor não ensina nem responde de conhecimento geral; diz que é de outra
+  área ou que não encontrou no material (aí sugere falar com o professor)
+  e sugere assuntos da disciplina. Só no início de um tópico — no meio
+  dele, um "não sei" também pode não trazer trechos.
+- `TITLE_MODEL` `gpt-4.1-nano` → `gpt-4.1-mini` (nano depreciado).
+
+**CAJU** (2026-11-04)
+- Nome no app (`name` do config, avatar `public/avatars/caju.png`),
+  na página de login e no "Leia-me"; mascote do CAJU como avatar, favicon
+  e imagem do login.
+- "Quem é você?" / "o que significa CAJU?" responde com uma apresentação
+  fixa (nó `about_tutor`, sem chamada de modelo, roteado no `route_start`
+  como a lista de assuntos). Antes caía no ensino como assunto fora do
+  material.
+- Botão **Avaliar o CAJU** no cabeçalho, abrindo o formulário de
+  avaliação dos testadores (Google Forms; `[[UI.header_links]]`). Tirar
+  quando os testes acabarem.
+- Cache do navegador: o favicon, a imagem e a página de login agora
+  levam `?v=` (`ASSET_VERSION` em `public/app.js` + `login.html`) — o
+  ícone antigo continuava aparecendo.
+
+**Deploy**
+- A KB e o roster da disciplina passaram a ser versionados (`.gitignore`
+  libera `data/knowledge_bases/` e `data/roster.txt`), e a KB de EDB2 entrou
+  no repositório (2026-10-29).
+- O Railway builda direto do GitHub: cada push no `main` faz deploy. O
+  container escuta na `PORT` que o Railway injeta (8501 no Docker puro).
+  Saíram o `railway up --no-gitignore` e o `.railwayignore`. O
+  `railway.toml` chegou a entrar, mas o Config as Code do Railway está
+  depreciado e era ignorado (o painel mostrava Railpack); as configurações
+  do serviço ficam no painel, listadas no `DEPLOY.md`.
+- Repositório renomeado para `caju-bot`; volume `caju-bot-volume`
+  (padrão do `scripts.pull_metrics`).
+- O Chroma reescreve os arquivos da KB ao abri-la, e o `chroma.sqlite3`
+  aparecia modificado no `git status`. `DEPLOY.md` explica o
+  `--skip-worktree` (por clone).
+
+**Docs** (2026-11-10)
+- `main.py` não tem mais disciplina padrão (era "Software Architecture",
+  que não existe mais): exige `DISCIPLINE` e sai com um aviso sem ela.
+- README, DEPLOY e o `chainlit.md` revisados contra o código.
+
+### ⚠️ Limitações
+- `not_covered` depende de a busca não trazer nada aprovado: um assunto
+  de fora com um trecho vagamente parecido ainda pode ser ensinado, e um
+  assunto da disciplina mal escrito pode cair em `not_covered`.
+- Várias disciplinas no Railway exigem um branch (ou repositório) e um
+  serviço por disciplina — o `main` só comporta uma KB.
+
+### 🔜 Próximos Passos
+- Continuam do log anterior: rodar `RUNS=3 python -m evals.tracking_eval`
+  e repetir as conversas roteirizadas.
+- Quando o estudo começar: `PERSONALIZATION_MODE=alternate` no Railway.
+- Quando os testes acabarem: tirar o botão **Avaliar o CAJU**.

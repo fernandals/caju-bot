@@ -1,4 +1,5 @@
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -11,7 +12,13 @@ from agent.state import StudentProfile, TutorState
 
 if __name__ == "__main__":
 
-    discipline = os.getenv("DISCIPLINE", "Software Architecture")
+    discipline = os.getenv("DISCIPLINE", "").strip()
+    if not discipline:
+        sys.exit(
+            "Defina DISCIPLINE com o nome de uma disciplina em "
+            "data/knowledge_bases/ (o nome dado ao criar a base), por exemplo:\n"
+            '  DISCIPLINE="Estruturas de Dados Básicas II" python main.py'
+        )
 
     graph, tutor_prompt, config = load_pipeline(discipline)
 
