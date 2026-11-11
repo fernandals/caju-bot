@@ -1,0 +1,14 @@
+{
+  "id": "kb_e515ec68",
+  "name": "Direito Civil I - Parte Geral",
+  "created_at": "2026-11-11T11:48:08.004130",
+  "embedding_model": "text-embedding-3-large",
+  "documents": 17,
+  "sections": 571,
+  "chunks": 1551,
+  "parser_version": "1.2",
+  "chunk_size": 1000,
+  "chunk_overlap": 100,
+  "low_text_files": [],
+  "failed_files": []
+}

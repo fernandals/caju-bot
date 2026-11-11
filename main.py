@@ -17,7 +17,7 @@ if __name__ == "__main__":
         sys.exit(
             "Defina DISCIPLINE com o nome de uma disciplina em "
             "data/knowledge_bases/ (o nome dado ao criar a base), por exemplo:\n"
-            '  DISCIPLINE="Estruturas de Dados Básicas II" python main.py'
+            '  DISCIPLINE="Direito Civil I - Parte Geral" python main.py'
         )
 
     graph, tutor_prompt, config = load_pipeline(discipline)
